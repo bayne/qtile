@@ -59,3 +59,6 @@ docs/_static/screenshots/
 /tags
 
 uv.lock
+
+__pycache__
+config.py
