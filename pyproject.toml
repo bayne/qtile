@@ -16,6 +16,8 @@ dynamic = ["version", "readme"]
 dependencies = [
     "cairocffi >= 1.7.0",
     "cffi >= 1.1.0",
+    "psutil>=7.1.0",
+    "systemd-python",
     "xcffib >= 1.4.0",
 ]
 license = "MIT"
@@ -182,4 +184,12 @@ filterwarnings = [
     "error:::libqtile",
     "error:::test",
     "ignore:::dbus_next",
+]
+
+[tool.uv.sources]
+systemd-python = { git = "https://github.com/systemd/python-systemd" }
+
+[dependency-groups]
+dev = [
+    "prompt-toolkit>=3.0.52",
 ]

@@ -5,7 +5,7 @@ from libqtile.lazy import lazy
 import os
 
 env = os.environ.copy()
-env.update({'PATH': env['PATH'] + ':/home/bpayne/.bin'})
+env.update({'PATH': env['PATH'] + ':/home/bpayne/.bin:/home/bpayne/.local/bin'})
 
 logger = log_utils.logger
 

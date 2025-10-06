@@ -49,7 +49,7 @@ def get_default_keys(mod: str, rofi: Rofi = None) -> List[Key]:
         Key([mod], "n", lazy.layout.normalize(), desc="Reset all window sizes"),
         Key([mod], "t", lazy.spawn('alacritty'), desc="Launch terminal"),
         Key([mod], "q", lazy.window.kill(), desc="Kill focused window"),
-        Key([mod, "control"], "r", lazy.reload_config(), desc="Reload the config"),
+        Key([mod, "control"], "r", lazy.restart(), desc="Reload the config"),
         Key([mod, "control"], "q", lazy.shutdown(), desc="Shutdown Qtile"),
         Key([mod], "r", rofi.show())
     ]
