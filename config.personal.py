@@ -91,26 +91,8 @@ rofi = Rofi(
     ]
 )
 
-@hook.subscribe.focus_change
-async def change_focus():
-    logger.info(f"focus_change: {qtile.current_window} {qtile.current_group.name}")
-
 @hook.subscribe.current_screen_change
-def screen_change():
-    screen_name = ''
-    if qtile.current_screen == qtile.screens[WORK_SCREEN_IDX]:
-        screen_name = 'work'
-    elif qtile.current_screen == qtile.screens[MAIN_SCREEN_IDX]:
-        screen_name = 'main'
-    elif qtile.current_screen == qtile.screens[LEFT_SCREEN_IDX]:
-        screen_name = 'left'
-    elif qtile.current_screen == qtile.screens[RIGHT_SCREEN_IDX]:
-        screen_name = 'right'
-
-    if qtile.current_screen != qtile.screens[WORK_SCREEN_IDX] or qtile.current_group.name != W1_GROUP:
-        qtile.groups_map[W1_GROUP].hide()
-
-
+def on_screen_change_update_top_bar_background():
     for screen in qtile.screens:
         if screen.top is None:
             continue
@@ -122,7 +104,10 @@ def screen_change():
     for widget in qtile.current_screen.top.widgets:
         widget.background = ACTIVE_BAR
 
-    logger.info(f"screen_change: {screen_name}, {qtile.screens[WORK_SCREEN_IDX]}")
+@hook.subscribe.current_screen_change
+def on_screen_change_hide_work_group():
+    if qtile.current_screen != qtile.screens[WORK_SCREEN_IDX] or qtile.current_group.name != W1_GROUP:
+        qtile.groups_map[W1_GROUP].hide()
 
 def _screen_move_left(_qtile):
     current_index = _qtile.screens.index(_qtile.current_screen)
@@ -152,11 +137,9 @@ def _screen_move_window_right(_qtile):
     elif current_index == MAIN_SCREEN_IDX:
         _qtile.current_window.toscreen(RIGHT_SCREEN_IDX)
 
-
 # https://github.com/qtile/qtile/blob/master/libqtile/backend/x11/xkeysyms.py
 env = os.environ.copy()
 env.update({'PATH': env['PATH'] + ':/home/bpayne/.bin'})
-rofi = Rofi([]) if rofi is None else rofi
 keys = [
     Key([mod], "h", lazy.function(_screen_move_left), desc="Move focus to left"),
     Key([mod], "l", lazy.function(_screen_move_right), desc="Move focus to right"),
