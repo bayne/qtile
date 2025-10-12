@@ -27,7 +27,7 @@ class OutlookChecker(widget.base.BackgroundPoll):
     ]
 
     def __init__(self, **config):
-        widget.base.ThreadPoolText.__init__(self, "", **config)
+        widget.base.BackgroundPoll.__init__(self, "", **config)
         self.add_defaults(OutlookChecker.defaults)
         self.markup = False
         self.foreground_inactive = self.foreground

@@ -17,6 +17,8 @@ dependencies = [
     "cairocffi >= 1.7.0",
     "cffi >= 1.1.0",
     "psutil>=7.1.0",
+    "pytz>=2025.2",
+    "requests>=2.32.5",
     "systemd-python",
     "xcffib >= 1.4.0",
 ]
