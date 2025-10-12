@@ -17,10 +17,11 @@ dependencies = [
     "cairocffi >= 1.7.0",
     "cffi >= 1.1.0",
     "psutil>=7.1.0",
+    "pulsectl-asyncio>=1.2.2",
     "pytz>=2025.2",
     "requests>=2.32.5",
     "systemd-python",
-    "xcffib >= 1.4.0",
+    "xcffib>=1.4.0",
 ]
 license = "MIT"
 license-files = [ "LICENSE" ]
