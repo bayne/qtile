@@ -2,6 +2,8 @@ import os
 from typing import Iterable
 from typing import List
 
+from bayne.rofi import Rofi
+from bayne.rofi import RofiScript
 from libqtile import hook
 from libqtile import layout
 from libqtile import log_utils
@@ -11,9 +13,6 @@ from libqtile.config import Drag
 from libqtile.config import Key
 from libqtile.config import Match
 from libqtile.lazy import lazy
-
-from bayne.rofi import Rofi
-from bayne.rofi import RofiScript
 
 logger = log_utils.logger
 
