@@ -11,7 +11,7 @@ def _get_password(entry):
     result = subprocess.run(["pass", entry], capture_output=True, text=True, check=True)
     return result.stdout.strip()
 
-class OutlookChecker(widget.base.ThreadPoolText):
+class OutlookChecker(widget.base.BackgroundPoll):
     SHOW_AS_RANK = {
         "busy": 0,
         "tentative": 1,
