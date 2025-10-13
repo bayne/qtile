@@ -49,7 +49,7 @@ def startup():
 
 
 ACTIVE_BAR = "#591a7d"
-INACTIVE_BAR = "#444"
+INACTIVE_BAR = "#55475E"
 
 mod = "mod4"
 dqhd_workflow = DQHDWorkflow(active_bar=ACTIVE_BAR, inactive_bar=INACTIVE_BAR, mod=mod)
@@ -121,7 +121,7 @@ fake_screens: List[Screen] = [
 ]
 fake_screens.insert(SHARE_SCREEN_IDX, Screen(
     background="#333",
-    x=5120, y=0, width=1920, height=1080,
+    x=0, y=1440, width=1920, height=1080,
 ))
 
 # Drag floating layouts.
