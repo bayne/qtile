@@ -6,13 +6,13 @@ from bayne import systemd_logging
 from bayne.default import get_default_floating
 from bayne.default import get_default_mouse
 from bayne.dqhd_workflow import DQHDWorkflow
+from bayne.dqhd_workflow import MAIN_SCREEN_IDX
 from bayne.hooks import active_popup
 from bayne.hooks import disable_screensaver
 from bayne.hooks import popover
 from bayne.rofi import Rofi
 from bayne.rofi import RofiScript
 from bayne.widgets.outlook_checker import OutlookChecker
-from dqhd_workflow import MAIN_SCREEN_IDX
 from libqtile import hook
 from libqtile import layout
 from libqtile import log_utils
