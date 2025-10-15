@@ -200,6 +200,12 @@ class DQHDWorkflow:
             layout.Max(),
         ]
 
+    @staticmethod
+    def _main_screen_window_name_parse(window_name: str):
+        if len(window_name) > 50:
+            return window_name[:50] + "…"
+        return window_name
+
     def fake_screens(self, extra_widgets: List[_Widget] = None) -> List[Screen]:
         # 5120x1440
         # 1280x1440+0+0, 2560x1440+1280+0, 1280x1440+3840+0
@@ -214,7 +220,7 @@ class DQHDWorkflow:
                         stretch=False,
                         window_name_location=True,
                     ),
-                    widget.WindowName(),
+                    widget.WindowName(parse_text=self._main_screen_window_name_parse),
                     widget.Clock(format="%a %b %d %I:%M:%S %p"),
                     *extra_widgets,
                     widget.TextBox(fmt="net", ),
