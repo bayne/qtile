@@ -8,7 +8,6 @@ from libqtile import hook
 from libqtile import layout
 from libqtile import log_utils
 from libqtile import qtile
-from libqtile import widget
 from libqtile.config import Group
 from libqtile.config import Key
 from libqtile.config import Screen
@@ -17,9 +16,20 @@ from libqtile.layout.base import Layout
 from libqtile.lazy import lazy
 from libqtile.lazy import LazyCall
 from libqtile.widget.base import _Widget
+from libqtile.widget.clock import Clock
+from libqtile.widget.graph import CPUGraph
+from libqtile.widget.graph import MemoryGraph
+from libqtile.widget.graph import NetGraph
+from libqtile.widget.groupbox import GroupBox
+from libqtile.widget.spacer import Spacer
+from libqtile.widget.statusnotifier import StatusNotifier
+from libqtile.widget.tasklist import TaskList
+from libqtile.widget.textbox import TextBox
 
 logger = log_utils.logger
 
+BAR_SIZE = 28
+BACKGROUND_COLOR = "#555555FF"
 MAIN_SCREEN_IDX = 0
 LEFT_SCREEN_IDX = 1
 RIGHT_SCREEN_IDX = 2
@@ -38,12 +48,35 @@ def sort_window(group: _Group):
 
     return _sort_window
 
-class CustomTaskList(widget.TaskList):
+class CustomTaskList(TaskList):
+
+    def __init__(self, **config):
+        super().__init__(
+            theme_mode='preferred',
+            theme_path='/usr/share/icons/Papirus-Dark',
+            icon_size=22,
+            border_width=4,
+            highlight_method='block',
+            spacing=0,
+            padding_y=8,
+            padding_x=2,
+            margin=0,
+            markup_normal="",
+            markup_focused=" {}",
+            window_name_location=False,
+            **config
+        )
+
     @property
     def windows(self):
         windows = super().windows
         windows = sorted(windows, key=sort_window(self.bar.screen.group))
         return windows
+
+class CustomStatusNotifier(StatusNotifier):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        logger.info("CustomStatusNotifier initialized")
 
 def _groups(prefix: str, screen_affinity: int) -> Dict[WorkspaceNumberKey, Group]:
     return dict([(i, Group(name=f'{prefix}{i}', screen_affinity=screen_affinity)) for i in get_args(WorkspaceNumberKey)])
@@ -70,13 +103,9 @@ class DQHDWorkflow:
                 if screen.top is None:
                     continue
                 screen.top.background = self.inactive_bar
-                for _widget in screen.top.widgets:
-                    _widget.background = self.inactive_bar
 
             if qtile.current_screen.top is not None:
                 qtile.current_screen.top.background = self.active_bar
-                for _widget in qtile.current_screen.top.widgets:
-                    _widget.background = self.active_bar
 
         @hook.subscribe.setgroup
         def set_last_main_group(*_):
@@ -211,73 +240,64 @@ class DQHDWorkflow:
         # 1280x1440+0+0, 2560x1440+1280+0, 1280x1440+3840+0
         fake_screens: List[Screen] = []
         fake_screens.insert(MAIN_SCREEN_IDX, Screen(
-            background="#555",
+            background=BACKGROUND_COLOR,
             top=bar.Bar(
                 widgets=[
-                    widget.GroupBox(visible_groups=[g.name for g in self.main_groups.values()]),
+                    GroupBox(visible_groups=[g.name for g in self.main_groups.values()]),
                     CustomTaskList(
-                        parse_text=lambda x: '',
-                        stretch=False,
-                        window_name_location=True,
+                        parse_text=self._main_screen_window_name_parse,
                     ),
-                    widget.WindowName(parse_text=self._main_screen_window_name_parse),
-                    widget.Clock(format="%a %b %d %I:%M:%S %p"),
+                    Clock(format="%a %b %d %I:%M:%S %p"),
                     *extra_widgets,
-                    widget.TextBox(fmt="net", ),
-                    widget.NetGraph(
+                    TextBox(fmt="net", ),
+                    NetGraph(
                         type='line',
                         margin_x=0,
                         margin_y=0,
                         border_width=0,
                     ),
-                    widget.TextBox(fmt="cpu", ),
-                    widget.CPUGraph(
+                    TextBox(fmt="cpu", ),
+                    CPUGraph(
                         type='line',
                         margin_x=0,
                         margin_y=0,
                         border_width=0,
                     ),
-                    widget.TextBox(fmt="mem", ),
-                    widget.MemoryGraph(
+                    TextBox(fmt="mem", ),
+                    MemoryGraph(
                         type='line',
                         margin_x=0,
                         margin_y=0,
                         border_width=0,
                     ),
-                    widget.Systray(padding=0),
-                    widget.Spacer(length=8)
+                    CustomStatusNotifier(
+                        icon_size=24,
+                        icon_theme='Papirus',
+                    ),
+                    Spacer(length=8)
                 ],
-                size=24,
+                size=BAR_SIZE,
                 background=self.active_bar,
             ),
             x=1280, y=0, width=2560, height=1440,
         ))
         fake_screens.insert(LEFT_SCREEN_IDX, Screen(
-            background="#555",
+            background=BACKGROUND_COLOR,
             top=bar.Bar(
                 widgets=[
-                    widget.GroupBox(visible_groups=[g.name for g in self.left_groups.values()]),
-                    CustomTaskList(
-                        parse_text=lambda x: '',
-                        stretch=False,
-                        window_name_location=True,
-                    ),
-                    widget.WindowName(),
-                ], size=24, background=self.active_bar, ),
+                    GroupBox(visible_groups=[g.name for g in self.left_groups.values()]),
+                    CustomTaskList(),
+                ], size=BAR_SIZE, background=self.active_bar, ),
             x=0, y=0, width=1280, height=1440,
         ))
         fake_screens.insert(RIGHT_SCREEN_IDX, Screen(
-            background="#555",
+            background=BACKGROUND_COLOR,
             top=bar.Bar(
                 widgets=[
-                    widget.GroupBox(visible_groups=[g.name for g in self.right_groups.values()]),
-                    CustomTaskList(
-                        parse_text=lambda x: '',
-                        stretch=False,
-                        window_name_location=True,
-                    ),
-                    widget.WindowName(),
-                ], size=24, background=self.active_bar, ),
+                    GroupBox(visible_groups=[g.name for g in self.right_groups.values()]),
+                    CustomTaskList(),
+
+                ], size=BAR_SIZE, background=self.active_bar, ),
             x=3840, y=0, width=1280, height=1440,
         ))
         return fake_screens

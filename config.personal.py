@@ -49,8 +49,8 @@ MBP_GROUP = "MBP"
 W1_GROUP = "W1"
 W2_GROUP = "W2"
 
-ACTIVE_BAR = "#222"
-INACTIVE_BAR = "#444"
+ACTIVE_BAR = "#222222FF"
+INACTIVE_BAR = "#444444FF"
 mod = "mod4"
 
 WORK_VM_WM_CLASS = 'remote-viewer'
@@ -163,7 +163,7 @@ fake_screens: List[Screen] = dqhd_workflow.fake_screens(extra_widgets=[
     widget.Spacer(),
     widget.GroupBox(
         visible_groups=[g.name for g in work_groups],
-        active="#B283D4",
+        active="#B283D4FF",
     ),
 ])
 fake_screens.insert(WORK_SCREEN_IDX, Screen(
