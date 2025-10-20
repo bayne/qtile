@@ -28,6 +28,7 @@ from libqtile.widget.textbox import TextBox
 
 logger = log_utils.logger
 
+ICON_SIZE = 22
 BAR_SIZE = 28
 BACKGROUND_COLOR = "#555555FF"
 MAIN_SCREEN_IDX = 0
@@ -54,7 +55,7 @@ class CustomTaskList(TaskList):
         super().__init__(
             theme_mode='preferred',
             theme_path='/usr/share/icons/Papirus-Dark',
-            icon_size=22,
+            icon_size=ICON_SIZE,
             border_width=4,
             highlight_method='block',
             spacing=0,
@@ -271,10 +272,11 @@ class DQHDWorkflow:
                         border_width=0,
                     ),
                     CustomStatusNotifier(
-                        icon_size=24,
-                        icon_theme='Papirus',
+                        icon_size=ICON_SIZE,
+                        padding=4,
+                        icon_theme='Papirus-Dark',
                     ),
-                    Spacer(length=8)
+                    Spacer(length=4)
                 ],
                 size=BAR_SIZE,
                 background=self.active_bar,
