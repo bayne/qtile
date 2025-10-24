@@ -57,7 +57,7 @@ WORK_VM_WM_CLASS = 'remote-viewer'
 
 WORK_VM_WIN_1_NAME = 'work (1)'
 WORK_VM_WIN_2_NAME = 'work (2)'
-WORK_MBP_WIN_NAME = 'DeckLink Quad HDMI Recorder (1)'
+WORK_MBP_WIN_NAME = 'work_mbp'
 
 WORK_WINDOW_NAMES = [
     WORK_VM_WIN_1_NAME,
