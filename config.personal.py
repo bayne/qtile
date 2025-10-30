@@ -75,7 +75,8 @@ WORK_SCREEN_IDX = 3
 dqhd_workflow = DQHDWorkflow(
     active_bar=ACTIVE_BAR,
     inactive_bar=INACTIVE_BAR,
-    mod=mod
+    mod=mod,
+    warp=True,
 )
 dqhd_workflow.register_hooks()
 

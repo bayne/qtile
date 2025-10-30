@@ -75,12 +75,12 @@ class CustomTaskList(TaskList):
         return windows
 
 class CustomStatusNotifier(StatusNotifier):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         logger.info("CustomStatusNotifier initialized")
 
 def _groups(prefix: str, screen_affinity: int) -> Dict[WorkspaceNumberKey, Group]:
-    return dict([(i, Group(name=f'{prefix}{i}', screen_affinity=screen_affinity)) for i in get_args(WorkspaceNumberKey)])
+    return { i: Group(name=f'{prefix}{i}', screen_affinity=screen_affinity) for i in get_args(WorkspaceNumberKey) }
 
 class DQHDWorkflow:
     def __init__(
@@ -88,10 +88,12 @@ class DQHDWorkflow:
         active_bar: str,
         inactive_bar: str,
         mod: str,
+        warp: bool,
     ):
         self.active_bar = active_bar
         self.inactive_bar = inactive_bar
         self.mod = mod
+        self.warp = warp
         self.main_groups: Dict[WorkspaceNumberKey, Group] = _groups('M', MAIN_SCREEN_IDX)
         self.left_groups: Dict[WorkspaceNumberKey, Group] = _groups('L', LEFT_SCREEN_IDX)
         self.right_groups: Dict[WorkspaceNumberKey, Group] = _groups('R', RIGHT_SCREEN_IDX)
@@ -122,7 +124,7 @@ class DQHDWorkflow:
         return groups
 
     def _main_screen(self, _qtile):
-        _qtile.focus_screen(MAIN_SCREEN_IDX)
+        _qtile.focus_screen(MAIN_SCREEN_IDX, warp=self.warp)
         if self.last_main_group is not None and _qtile.current_screen.group.name != self.last_main_group:
             _qtile.screens[MAIN_SCREEN_IDX].toggle_group(self.last_main_group)
 
@@ -152,13 +154,12 @@ class DQHDWorkflow:
                 _qtile.current_window.togroup(_group.name)
         return lazy.function(_move)
 
-    @staticmethod
-    def _screen_move_left(_qtile):
+    def _screen_move_left(self, _qtile):
         current_index = _qtile.screens.index(_qtile.current_screen)
         if current_index == RIGHT_SCREEN_IDX:
-            _qtile.focus_screen(MAIN_SCREEN_IDX)
+            _qtile.focus_screen(MAIN_SCREEN_IDX, warp=self.warp)
         elif current_index == MAIN_SCREEN_IDX:
-            _qtile.focus_screen(LEFT_SCREEN_IDX)
+            _qtile.focus_screen(LEFT_SCREEN_IDX, warp=self.warp)
 
     @staticmethod
     def _screen_move_window_left(_qtile):
@@ -168,13 +169,12 @@ class DQHDWorkflow:
         elif current_index == MAIN_SCREEN_IDX:
             _qtile.current_window.toscreen(LEFT_SCREEN_IDX)
 
-    @staticmethod
-    def _screen_move_right(_qtile):
+    def _screen_move_right(self, _qtile):
         current_index = _qtile.screens.index(_qtile.current_screen)
         if current_index == LEFT_SCREEN_IDX:
-            _qtile.focus_screen(MAIN_SCREEN_IDX)
+            _qtile.focus_screen(MAIN_SCREEN_IDX, warp=self.warp)
         elif current_index == MAIN_SCREEN_IDX:
-            _qtile.focus_screen(RIGHT_SCREEN_IDX)
+            _qtile.focus_screen(RIGHT_SCREEN_IDX, warp=self.warp)
 
     @staticmethod
     def _screen_move_window_right(_qtile):
