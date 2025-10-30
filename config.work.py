@@ -56,7 +56,8 @@ dqhd_workflow = DQHDWorkflow(
     active_bar=ACTIVE_BAR,
     inactive_bar=INACTIVE_BAR,
     mod=mod,
-    warp=False,
+    warp=True,
+    theme_mode='fallback',
 )
 dqhd_workflow.register_hooks()
 

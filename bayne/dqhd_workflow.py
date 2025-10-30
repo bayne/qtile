@@ -53,7 +53,6 @@ class CustomTaskList(TaskList):
 
     def __init__(self, **config):
         super().__init__(
-            theme_mode='preferred',
             theme_path='/usr/share/icons/Papirus-Dark',
             icon_size=ICON_SIZE,
             border_width=4,
@@ -89,11 +88,13 @@ class DQHDWorkflow:
         inactive_bar: str,
         mod: str,
         warp: bool,
+        theme_mode: str,
     ):
         self.active_bar = active_bar
         self.inactive_bar = inactive_bar
         self.mod = mod
         self.warp = warp
+        self.theme_mode = theme_mode
         self.main_groups: Dict[WorkspaceNumberKey, Group] = _groups('M', MAIN_SCREEN_IDX)
         self.left_groups: Dict[WorkspaceNumberKey, Group] = _groups('L', LEFT_SCREEN_IDX)
         self.right_groups: Dict[WorkspaceNumberKey, Group] = _groups('R', RIGHT_SCREEN_IDX)
@@ -247,6 +248,7 @@ class DQHDWorkflow:
                     GroupBox(visible_groups=[g.name for g in self.main_groups.values()]),
                     CustomTaskList(
                         parse_text=self._main_screen_window_name_parse,
+                        theme_mode=self.theme_mode,
                     ),
                     Clock(format="%a %b %d %I:%M:%S %p"),
                     *extra_widgets,
@@ -288,7 +290,9 @@ class DQHDWorkflow:
             top=bar.Bar(
                 widgets=[
                     GroupBox(visible_groups=[g.name for g in self.left_groups.values()]),
-                    CustomTaskList(),
+                    CustomTaskList(
+                        theme_mode=self.theme_mode
+                    ),
                 ], size=BAR_SIZE, background=self.active_bar, ),
             x=0, y=0, width=1280, height=1440,
         ))
@@ -297,8 +301,9 @@ class DQHDWorkflow:
             top=bar.Bar(
                 widgets=[
                     GroupBox(visible_groups=[g.name for g in self.right_groups.values()]),
-                    CustomTaskList(),
-
+                    CustomTaskList(
+                        theme_mode=self.theme_mode
+                    ),
                 ], size=BAR_SIZE, background=self.active_bar, ),
             x=3840, y=0, width=1280, height=1440,
         ))
