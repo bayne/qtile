@@ -52,7 +52,12 @@ ACTIVE_BAR = "#591a7d"
 INACTIVE_BAR = "#55475E"
 
 mod = "mod4"
-dqhd_workflow = DQHDWorkflow(active_bar=ACTIVE_BAR, inactive_bar=INACTIVE_BAR, mod=mod)
+dqhd_workflow = DQHDWorkflow(
+    active_bar=ACTIVE_BAR,
+    inactive_bar=INACTIVE_BAR,
+    mod=mod,
+    warp=False,
+)
 dqhd_workflow.register_hooks()
 
 SHARE_SCREEN_IDX = 3
