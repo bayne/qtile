@@ -1,26 +1,35 @@
 import subprocess
 from typing import List
 
-from libqtile import bar
-from libqtile import hook
-from libqtile import layout
-from libqtile import log_utils
-from libqtile import widget
-from libqtile.config import Group
-from libqtile.config import Key
-from libqtile.config import Mouse
-from libqtile.config import Screen
-from libqtile.layout.base import Layout
-from libqtile.lazy import lazy
-
 from bayne import systemd_logging
 from bayne.default import get_default_floating
 from bayne.default import get_default_keys
 from bayne.default import get_default_mouse
 from bayne.default import get_default_rofi
 from bayne.default import get_default_switch_group_keys
+from bayne.dqhd_workflow import DQHDWorkflow
 from bayne.hooks import active_popup
 from bayne.hooks import popover
+from libqtile import hook
+from libqtile import layout
+from libqtile import log_utils
+from libqtile.bar import Bar
+from libqtile.config import Group
+from libqtile.config import Key
+from libqtile.config import Mouse
+from libqtile.config import Screen
+from libqtile.layout.base import Layout
+from libqtile.lazy import lazy
+from libqtile.widget.backlight import Backlight
+from libqtile.widget.battery import Battery
+from libqtile.widget.clock import Clock
+from libqtile.widget.graph import MemoryGraph, CPUGraph, NetGraph
+from libqtile.widget.groupbox import GroupBox
+from libqtile.widget.pulse_volume import PulseVolume
+from libqtile.widget.spacer import Spacer
+from libqtile.widget.systray import Systray
+from libqtile.widget.tasklist import TaskList
+from libqtile.widget.textbox import TextBox
 
 BORDER_FOCUS="#CC1111"
 BORDER_NORMAL="#440000"
@@ -99,56 +108,55 @@ extension_defaults = widget_defaults.copy()
 screens: List[Screen] = [
     Screen(
         background="#555",
-        top=bar.Bar(
+        top=Bar(
             widgets=[
-                widget.GroupBox(),
-                widget.WindowName(),
-                widget.Clock(format="%a %b %d %I:%M:%S %p"),
-                widget.Spacer(),
-                widget.Backlight(
+                GroupBox(),
+                TaskList(
+                    icon_size=22,
+                    border_width=4,
+                    highlight_method='block',
+                    spacing=0,
+                    padding_y=8,
+                    padding_x=2,
+                    margin=0,
+                    markup_normal="",
+                    markup_focused=" {}",
+                    window_name_location=False,
+                    parse_text=DQHDWorkflow._main_screen_window_name_parse,
+                ),
+                Clock(format="%a %b %d %I:%M:%S %p"),
+                Spacer(),
+                TextBox(fmt="net",),
+                NetGraph(
+                    type='line',
+                ),
+                TextBox(fmt="cpu",),
+                CPUGraph(
+                    type='line',
+                ),
+                TextBox(fmt="mem",),
+                MemoryGraph(),
+                Backlight(
                     background='#551',
                     fmt='☀️{}',
                     backlight_name='amdgpu_bl0'
                 ),
-                widget.PulseVolume(
+                PulseVolume(
                     emoji=False,
                     fmt='🔊{}',
                     background='#135',
                 ),
-                widget.Battery(
+                Battery(
                     background='#133',
                     format='{char} {percent:2.0%} {hour:d}h{min:02d}m',
                     charge_char='🔌',
                     discharge_char='🔋',
                 ),
-                widget.Systray(),
+                Systray(),
             ],
             size=32,
             background="#222",
         ),
-        bottom=bar.Bar(
-            widgets=[
-                widget.WindowTabs(
-                    parse_text=lambda name: '█',
-                    fmt=f'<span fgcolor="{BORDER_NORMAL}">{"{}"}</span>',
-                    separator='',
-                    selected=(f'<span fgcolor="{BORDER_FOCUS}">', '</span>'),
-                ),
-                widget.Spacer(),
-                widget.TextBox(fmt="🌐",),
-                widget.NetGraph(
-                    type='line',
-                ),
-                widget.TextBox(fmt="⚙️",),
-                widget.CPUGraph(
-                    type='line',
-                ),
-                widget.TextBox(fmt="🔲",),
-                widget.MemoryGraph(),
-            ],
-            size=32,
-            background="#222",
-        )
     )
 ]
 
