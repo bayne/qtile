@@ -191,13 +191,13 @@ class DQHDWorkflow:
         for number_key in get_args(WorkspaceNumberKey):
             keys.extend([
                 Key(
-                    [mod],
+                    [self.mod],
                     number_key,
                     self._group_switch(number_key),
                     desc=f"Switch to group {number_key}"
                 ),
                 Key(
-                    [mod, "shift"],
+                    [self.mod, "shift"],
                     number_key,
                     self._move_window_to_group(number_key),
                     desc=f"Switch to group {number_key}"
