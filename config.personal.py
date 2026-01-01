@@ -87,6 +87,8 @@ def get_screen_idx(group: Group):
         case _: return MAIN_SCREEN_IDX
 
 def focus(window):
+    if not window.group:
+        return
     group = window.group
     screen_idx = get_screen_idx(group)
 
