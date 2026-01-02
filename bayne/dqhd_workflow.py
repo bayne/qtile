@@ -193,6 +193,8 @@ class DQHDWorkflow:
     @staticmethod
     def components(group: Group | str):
         name = group if isinstance(group, str) else group.name
+        if name == 'MBP':
+            return 'MBP', 1
         return name[0], int(name[1:])
 
     @staticmethod
@@ -253,6 +255,7 @@ class DQHDWorkflow:
 
         def find_closest():
             windows = _qtile.windows()
+            windows = filter(lambda w: w['group'] != 'MBP', windows)
             windows = list(filter(lambda w: 'Alacritty' in w['wm_class'], windows))
             if not windows:
                 return None
