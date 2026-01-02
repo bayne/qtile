@@ -204,13 +204,18 @@ class DQHDWorkflow:
             case _: return MAIN_SCREEN_IDX
 
     @staticmethod
-    def focus(window):
+    def focus(window, warp = False):
         if not window.group:
             return
+
+        if warp:
+            window.toscreen(qtile.current_screen.index)
+            qtile.current_group.focus(window)
+            return
+
         group = window.group
         screen_idx = DQHDWorkflow.get_screen_idx(group)
 
-        qtile.focus_screen(screen_idx)
         qtile.screens[screen_idx].set_group(group)
         group.focus(window)
 
@@ -256,7 +261,7 @@ class DQHDWorkflow:
 
         closest = find_closest()
         if closest:
-            DQHDWorkflow.focus(closest)
+            DQHDWorkflow.focus(closest, warp=True)
         else:
             _qtile.spawn('alacritty')
 
