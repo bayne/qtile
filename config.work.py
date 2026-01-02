@@ -43,8 +43,6 @@ def startup():
     subprocess.Popen(["/usr/bin/vorta"])
     # screenshot
     subprocess.Popen(["gtk-launch", "org.flameshot.Flameshot"])
-    # egress firewall
-    subprocess.Popen(["gtk-launch", "opensnitch_ui"])
     subprocess.run(["/usr/bin/systemctl", "--user", "start", "spice-vdagent"])
 
 
@@ -55,7 +53,6 @@ mod = "mod4"
 dqhd_workflow = DQHDWorkflow(
     active_bar=ACTIVE_BAR,
     inactive_bar=INACTIVE_BAR,
-    mod=mod,
     warp=True,
     theme_mode='fallback',
 )
@@ -85,7 +82,6 @@ keys = [
     Key(["mod1", "shift"], "4", lazy.spawn('flameshot gui'), desc="screenshot"),
     # Grow windows. If current window is on the edge of screen and direction
     # will be to screen edge - window would shrink.
-    Key([mod], "t", lazy.spawn('alacritty'), desc="Launch terminal"),
     Key([mod], "q", lazy.window.kill(), desc="Kill focused window"),
     Key([mod, "control"], "r", lazy.restart(), desc="Reload the config"),
     Key([mod, "control"], "q", lazy.shutdown(), desc="Shutdown Qtile"),
