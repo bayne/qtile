@@ -35,7 +35,6 @@ MAIN_SCREEN_IDX = 0
 LEFT_SCREEN_IDX = 1
 RIGHT_SCREEN_IDX = 2
 
-mod = "mod4"
 
 WorkspaceNumberKey = Literal["1", "2", "3", "4", "5"]
 
@@ -86,13 +85,11 @@ class DQHDWorkflow:
         self,
         active_bar: str,
         inactive_bar: str,
-        mod: str,
         warp: bool,
         theme_mode: str,
     ):
         self.active_bar = active_bar
         self.inactive_bar = inactive_bar
-        self.mod = mod
         self.warp = warp
         self.theme_mode = theme_mode
         self.main_groups: Dict[WorkspaceNumberKey, Group] = _groups('M', MAIN_SCREEN_IDX)
@@ -101,6 +98,14 @@ class DQHDWorkflow:
         self.last_main_group = None
 
     def register_hooks(self,):
+
+        @hook.subscribe.client_name_updated
+        async def on_client_name_updated(client):
+            current_windows = filter(lambda s: s.group.current_window, qtile.screens)
+            current_windows = list(map(lambda s: s.group.current_window.wid, current_windows))
+            if client.wid not in current_windows:
+                DQHDWorkflow.focus(client)
+
         @hook.subscribe.current_screen_change
         def on_screen_change_update_top_bar_background():
             for screen in qtile.screens:
@@ -185,19 +190,89 @@ class DQHDWorkflow:
         elif current_index == MAIN_SCREEN_IDX:
             _qtile.current_window.toscreen(RIGHT_SCREEN_IDX)
 
-    def keys(self) -> List[Key]:
+    @staticmethod
+    def components(group: Group | str):
+        name = group if isinstance(group, str) else group.name
+        return name[0], int(name[1:])
+
+    @staticmethod
+    def get_screen_idx(group: Group):
+        match DQHDWorkflow.components(group):
+            case 'M', _: return MAIN_SCREEN_IDX
+            case 'L', _: return LEFT_SCREEN_IDX
+            case 'R', _: return RIGHT_SCREEN_IDX
+            case _: return MAIN_SCREEN_IDX
+
+    @staticmethod
+    def focus(window):
+        if not window.group:
+            return
+        group = window.group
+        screen_idx = DQHDWorkflow.get_screen_idx(group)
+
+        qtile.focus_screen(screen_idx)
+        qtile.screens[screen_idx].set_group(group)
+        group.focus(window)
+
+    @staticmethod
+    def _open_terminal(_qtile):
+        current_group = _qtile.current_group
+        current_windows = filter(lambda s: s.group.current_window, _qtile.screens)
+        current_windows = list(map(lambda s: s.group.current_window.wid, current_windows))
+
+        def active_distance(w):
+            return 0 if w['id'] in current_windows else 1
+
+        def group_distance(w):
+            _, n = DQHDWorkflow.components(w['group'])
+            _, cn = DQHDWorkflow.components(current_group.name)
+            return abs(n - cn)
+
+        def screen_distance(w):
+            group = DQHDWorkflow.components(w['group'])
+            cg, cn = DQHDWorkflow.components(current_group.name)
+
+            match group:
+                case g, _ if g == cg: return 0
+                case 'M', _: return 1
+                case 'L', _: return 2
+                case 'R', _: return 3
+                case _: return 4
+
+        def rank(w):
+            return (
+                active_distance(w),
+                screen_distance(w),
+                group_distance(w),
+            )
+
+        def find_closest():
+            windows = _qtile.windows()
+            windows = list(filter(lambda w: 'Alacritty' in w['wm_class'], windows))
+            if not windows:
+                return None
+            wid = min(windows, key=lambda w: rank(w))['id']
+            return _qtile.windows_map.get(wid)
+
+        closest = find_closest()
+        if closest:
+            DQHDWorkflow.focus(closest)
+        else:
+            _qtile.spawn('alacritty')
+
+    def keys(self, mod = "mod4") -> List[Key]:
         keys = []
 
         for number_key in get_args(WorkspaceNumberKey):
             keys.extend([
                 Key(
-                    [self.mod],
+                    [mod],
                     number_key,
                     self._group_switch(number_key),
                     desc=f"Switch to group {number_key}"
                 ),
                 Key(
-                    [self.mod, "shift"],
+                    [mod, "shift"],
                     number_key,
                     self._move_window_to_group(number_key),
                     desc=f"Switch to group {number_key}"
@@ -211,16 +286,17 @@ class DQHDWorkflow:
 
         # https://github.com/qtile/qtile/blob/master/libqtile/backend/x11/xkeysyms.py
         keys.extend([
-            Key([self.mod], "h", lazy.function(self._screen_move_left), desc="Move focus to left"),
-            Key([self.mod], "l", lazy.function(self._screen_move_right), desc="Move focus to right"),
-            Key([self.mod], "j", lazy.layout.down(), desc="Move focus down"),
-            Key([self.mod], "k", lazy.layout.up(), desc="Move focus up"),
-            Key([self.mod], "Tab", lazy.layout.next(), desc="Move window focus to next window"),
-            Key([self.mod, "shift"], "Tab", lazy.layout.previous(), desc="Move window focus to prev window"),
-            Key([self.mod, "shift"], "h", lazy.function(self._screen_move_window_left), lazy.function(self._screen_move_left), desc="Move window to the left"),
-            Key([self.mod, "shift"], "l", lazy.function(self._screen_move_window_right), lazy.function(self._screen_move_right), desc="Move window to the right"),
-            Key([self.mod, "shift"], "j", lazy.layout.shuffle_down(), desc="Move window down"),
-            Key([self.mod, "shift"], "k", lazy.layout.shuffle_up(), desc="Move window up"),
+            Key([mod], "h", lazy.function(self._screen_move_left), desc="Move focus to left"),
+            Key([mod], "l", lazy.function(self._screen_move_right), desc="Move focus to right"),
+            Key([mod], "j", lazy.layout.down(), desc="Move focus down"),
+            Key([mod], "k", lazy.layout.up(), desc="Move focus up"),
+            Key([mod], "Tab", lazy.layout.next(), desc="Move window focus to next window"),
+            Key([mod], "t", lazy.function(DQHDWorkflow._open_terminal), desc="Launch terminal"),
+            Key([mod, "shift"], "Tab", lazy.layout.previous(), desc="Move window focus to prev window"),
+            Key([mod, "shift"], "h", lazy.function(self._screen_move_window_left), lazy.function(self._screen_move_left), desc="Move window to the left"),
+            Key([mod, "shift"], "l", lazy.function(self._screen_move_window_right), lazy.function(self._screen_move_right), desc="Move window to the right"),
+            Key([mod, "shift"], "j", lazy.layout.shuffle_down(), desc="Move window down"),
+            Key([mod, "shift"], "k", lazy.layout.shuffle_up(), desc="Move window up"),
         ])
 
         return keys

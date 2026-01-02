@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+from enum import Enum
 from re import Pattern
 from typing import List
 
@@ -47,13 +48,18 @@ def startup_once():
 
     subprocess.Popen(["1password", "--silent"])
 
-MBP_GROUP = "MBP"
-W1_GROUP = "W1"
-W2_GROUP = "W2"
+class EnvGroup(str, Enum):
+    MBP_GROUP = "MBP"
+    W1_GROUP = "W1"
+    W2_GROUP = "W2"
+    PERSONAL = "M1"
+
+    def __str__(self):
+        return self.value
 
 ACTIVE_BAR = "#222222FF"
 INACTIVE_BAR = "#444444FF"
-mod = "mod4"
+MOD = "mod4"
 
 WORK_VM_WM_CLASS = 'remote-viewer'
 
@@ -75,31 +81,9 @@ LEFT_SCREEN_IDX = 1
 RIGHT_SCREEN_IDX = 2
 WORK_SCREEN_IDX = 3
 
-def components(group: Group | str):
-    name = group if isinstance(group, str) else group.name
-    return name[0], int(name[1:])
-
-def get_screen_idx(group: Group):
-    match components(group):
-        case 'M', _: return MAIN_SCREEN_IDX
-        case 'L', _: return LEFT_SCREEN_IDX
-        case 'R', _: return RIGHT_SCREEN_IDX
-        case _: return MAIN_SCREEN_IDX
-
-def focus(window):
-    if not window.group:
-        return
-    group = window.group
-    screen_idx = get_screen_idx(group)
-
-    qtile.focus_screen(screen_idx)
-    qtile.screens[screen_idx].set_group(group)
-    group.focus(window)
-
 dqhd_workflow = DQHDWorkflow(
     active_bar=ACTIVE_BAR,
     inactive_bar=INACTIVE_BAR,
-    mod=mod,
     warp=True,
     theme_mode='preferred',
 )
@@ -109,21 +93,14 @@ dqhd_workflow.register_hooks()
 def on_client_new(client):
     logger.info(f"client new: {client.name}")
 
-@hook.subscribe.client_name_updated
-def on_name_change(client):
-    current_windows = filter(lambda s: s.group.current_window, qtile.screens)
-    current_windows = list(map(lambda s: s.group.current_window.wid, current_windows))
-    if client.wid not in current_windows:
-        focus(client)
-
 @hook.subscribe.client_urgent_hint_changed
 def on_urgent_hint_change(client):
     logger.info(f"client urgent hint changed: {client.name}")
 
 @hook.subscribe.current_screen_change
 def on_screen_change_hide_work_group():
-    if qtile.current_screen != qtile.screens[WORK_SCREEN_IDX] or qtile.current_group.name != W1_GROUP:
-        qtile.groups_map[W1_GROUP].hide()
+    if qtile.current_screen != qtile.screens[WORK_SCREEN_IDX] or qtile.current_group.name != EnvGroup.W1_GROUP:
+        qtile.groups_map[EnvGroup.W1_GROUP].hide()
 
 env = os.environ.copy()
 env.update({'PATH': env['PATH'] + ':/home/bpayne/.bin'})
@@ -145,85 +122,67 @@ groups: List[Group] = [
 ]
 
 work_groups = [
-    Group(name=W1_GROUP, screen_affinity=WORK_SCREEN_IDX, matches=[Match(title=WORK_VM_WIN_1_NAME, wm_class=WORK_VM_WM_CLASS), Match(title=WORK_XEPHYR_PATTERN)]),
-    Group(name=W2_GROUP, screen_affinity=MAIN_SCREEN_IDX, matches=[Match(wm_class=WORK_VM_WM_CLASS)]),
-    Group(name=MBP_GROUP, screen_affinity=MAIN_SCREEN_IDX, matches=[Match(title=WORK_MBP_WIN_NAME)]),
+    Group(name=EnvGroup.W1_GROUP, screen_affinity=WORK_SCREEN_IDX, matches=[Match(title=WORK_VM_WIN_1_NAME, wm_class=WORK_VM_WM_CLASS), Match(title=WORK_XEPHYR_PATTERN)]),
+    Group(name=EnvGroup.W2_GROUP, screen_affinity=MAIN_SCREEN_IDX, matches=[Match(wm_class=WORK_VM_WM_CLASS)]),
+    Group(name=EnvGroup.MBP_GROUP, screen_affinity=MAIN_SCREEN_IDX, matches=[Match(title=WORK_MBP_WIN_NAME)]),
 ]
 groups.extend(work_groups)
 
-def _handle_terminal_key(_qtile):
-    current_group = _qtile.current_group
-    current_windows = filter(lambda s: s.group.current_window, _qtile.screens)
-    current_windows = list(map(lambda s: s.group.current_window.wid, current_windows))
+def get_keys(mod):
 
-    def active_distance(w):
-        return 0 if w['id'] in current_windows else 1
+    def rebind_mod(new_mod):
+        dqhd_workflow.mod = new_mod
+        qtile.ungrab_keys()
+        for key in get_keys(new_mod):
+            qtile.grab_key(key)
+        logger.info(f"rebind mod to {mod}")
+    
+    def focus_on_env(env_group: EnvGroup):
+        def get_screen_and_key():
+            match env_group:
+                case EnvGroup.W1_GROUP:
+                    return WORK_SCREEN_IDX, "mod5"
+                case EnvGroup.W2_GROUP:
+                    return MAIN_SCREEN_IDX, "mod5"
+                case EnvGroup.MBP_GROUP:
+                    return MAIN_SCREEN_IDX, "mod4"
+                case EnvGroup.PERSONAL:
+                    return MAIN_SCREEN_IDX, "mod4"
 
-    def group_distance(w):
-        _, n = components(w['group'])
-        _, cn = components(current_group.name)
-        return abs(n - cn)
+        def handler(_qtile) :
+            screen_idx, mod_key = get_screen_and_key()
 
-    def screen_distance(w):
-        group = components(w['group'])
-        cg, cn = components(current_group.name)
+            _qtile.focus_screen(screen_idx)
+            _qtile.current_screen.set_group(_qtile.groups_map.get(env_group))
+            _qtile.current_window.bring_to_front()
+            rebind_mod(mod_key)
 
-        match group:
-            case g, _ if g == cg: return 0
-            case 'M', _: return 1
-            case 'L', _: return 2
-            case 'R', _: return 3
-            case _: return 4
+        return lazy.function(handler)
 
-    def rank(w):
-        return (
-            active_distance(w),
-            screen_distance(w),
-            group_distance(w),
-        )
-
-    def find_closest():
-        windows = _qtile.windows()
-        windows = list(filter(lambda w: 'Alacritty' in w['wm_class'], windows))
-        if not windows:
-            return None
-        wid = min(windows, key=lambda w: rank(w))['id']
-        return _qtile.windows_map.get(wid)
-
-    closest = find_closest()
-    if closest:
-        focus(closest)
-    else:
-        _qtile.spawn('alacritty')
-
-def get_keys(__personal, __mbp, __w1, __w2, _mod):
     return [
-        *dqhd_workflow.keys(),
+        *dqhd_workflow.keys(mod),
         # mod1 is alt key
         Key(["mod1", "shift"], "4", lazy.spawn('flameshot gui'), desc="screenshot"),
-        # Grow windows. If current window is on the edge of screen and direction
-        # will be to screen edge - window would shrink.
-        Key([_mod], "t", lazy.function(_handle_terminal_key), desc="Launch terminal"),
-        Key([_mod], "q", lazy.window.kill(), desc="Kill focused window"),
-        Key([_mod, "control"], "r", lazy.restart(), desc="Reload the config"),
-        Key([_mod, "control"], "q", lazy.shutdown(), desc="Shutdown Qtile"),
-        Key([_mod], "r", rofi.show()),
+        Key([mod], "q", lazy.window.kill(), desc="Kill focused window"),
+        Key([mod, "control"], "r", lazy.restart(), desc="Reload the config"),
+        Key([mod, "control"], "q", lazy.shutdown(), desc="Shutdown Qtile"),
+        Key([mod], "r", rofi.show()),
 
         Key([], 'Help',
-            lazy.function(__personal),
+            focus_on_env(EnvGroup.PERSONAL),
             desc="focus on personal"
             ),
 
         Key([], 'XF86Search',
-            lazy.function(__mbp),
+            focus_on_env(EnvGroup.MBP_GROUP),
             desc="focus on mbp"
             ),
         Key(['mod1', "control"], "9",
-            lazy.function(__w1),
+            focus_on_env(EnvGroup.W1_GROUP),
             desc="W1"
             ),
         Key(['mod1', "control"], "0",
-            lazy.function(__w2),
+            focus_on_env(EnvGroup.W2_GROUP),
             desc="W2",
             ),
         Key([mod, 'control'], 'l',
@@ -232,42 +191,8 @@ def get_keys(__personal, __mbp, __w1, __w2, _mod):
             ),
     ]
 
-def rebind_mod(new_mod):
-    global mod
-    global keys
-    mod = new_mod
-    dqhd_workflow.mod = mod
-    keys = get_keys(_personal, _mbp, _w1, _w2, mod)
-    qtile.ungrab_keys()
-    for key in keys:
-        qtile.grab_key(key)
-    logger.info(f"rebind mod to {mod}")
-
-def _w1(_qtile):
-    _qtile.focus_screen(WORK_SCREEN_IDX)
-    _qtile.current_screen.set_group(_qtile.groups_map.get(W1_GROUP))
-    _qtile.current_window.bring_to_front()
-
-    rebind_mod("mod5")
-
-def _w2(_qtile):
-    _qtile.focus_screen(MAIN_SCREEN_IDX)
-    _qtile.current_screen.set_group(_qtile.groups_map.get(W2_GROUP))
-    _qtile.current_window.bring_to_front()
-
-    rebind_mod("mod5")
-
-def _mbp(_qtile):
-    _qtile.focus_screen(MAIN_SCREEN_IDX)
-    _qtile.current_screen.set_group(_qtile.groups_map.get(MBP_GROUP))
-    rebind_mod("mod4")
-    _qtile.current_window.bring_to_front()
-
-def _personal(_qtile):
-    rebind_mod("mod4")
-
 # https://github.com/qtile/qtile/blob/master/libqtile/backend/x11/xkeysyms.py
-keys = get_keys(_personal, _mbp, _w1, _w2, mod)
+keys = get_keys(MOD)
 
 layouts: List[Layout] = dqhd_workflow.layouts()
 
@@ -287,7 +212,7 @@ fake_screens.insert(WORK_SCREEN_IDX, Screen(
 ))
 
 # Drag floating layouts.
-mouse: List[Mouse] = get_default_mouse(mod)
+mouse: List[Mouse] = get_default_mouse(MOD)
 dgroups_key_binder = None
 dgroups_app_rules = []  # type: list
 follow_mouse_focus = False
