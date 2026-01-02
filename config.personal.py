@@ -151,10 +151,11 @@ def get_keys(mod):
 
         def handler(_qtile) :
             screen_idx, mod_key = get_screen_and_key()
-
-            _qtile.focus_screen(screen_idx)
-            _qtile.current_screen.set_group(_qtile.groups_map.get(env_group))
-            _qtile.current_window.bring_to_front()
+            if env_group != EnvGroup.PERSONAL:
+                _qtile.focus_screen(screen_idx)
+                _qtile.current_screen.set_group(_qtile.groups_map.get(env_group))
+                if _qtile.current_window:
+                    _qtile.current_window.bring_to_front()
             rebind_mod(mod_key)
 
         return lazy.function(handler)
