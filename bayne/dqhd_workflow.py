@@ -8,6 +8,7 @@ from libqtile import hook
 from libqtile import layout
 from libqtile import log_utils
 from libqtile import qtile
+from libqtile.backend.base import Window
 from libqtile.config import Group
 from libqtile.config import Key
 from libqtile.config import Screen
@@ -101,6 +102,11 @@ class DQHDWorkflow:
 
         @hook.subscribe.client_name_updated
         async def on_client_name_updated(client):
+            current_window: Window = qtile.current_window
+            if current_window and current_window.floating:
+                # Don't change focus if the currently focused window is floating
+                return
+
             current_windows = filter(lambda s: s.group.current_window, qtile.screens)
             current_windows = list(map(lambda s: s.group.current_window.wid, current_windows))
             if client.wid not in current_windows:
