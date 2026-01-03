@@ -8,6 +8,7 @@ from libqtile import hook
 from libqtile import layout
 from libqtile import log_utils
 from libqtile import qtile
+from libqtile.backend.base import Window
 from libqtile.config import Group
 from libqtile.config import Key
 from libqtile.config import Screen
@@ -101,6 +102,11 @@ class DQHDWorkflow:
 
         @hook.subscribe.client_name_updated
         async def on_client_name_updated(client):
+            current_window: Window = qtile.current_window
+            if current_window and current_window.floating:
+                # Don't change focus if the currently focused window is floating
+                return
+
             current_windows = filter(lambda s: s.group.current_window, qtile.screens)
             current_windows = list(map(lambda s: s.group.current_window.wid, current_windows))
             if client.wid not in current_windows:
@@ -193,6 +199,8 @@ class DQHDWorkflow:
     @staticmethod
     def components(group: Group | str):
         name = group if isinstance(group, str) else group.name
+        if name == 'MBP':
+            return 'MBP', 1
         return name[0], int(name[1:])
 
     @staticmethod
@@ -253,6 +261,7 @@ class DQHDWorkflow:
 
         def find_closest():
             windows = _qtile.windows()
+            windows = filter(lambda w: w['group'] != 'MBP', windows)
             windows = list(filter(lambda w: 'Alacritty' in w['wm_class'], windows))
             if not windows:
                 return None

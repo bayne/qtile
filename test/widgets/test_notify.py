@@ -68,8 +68,7 @@ DEFAULT_TIMEOUT_URGENT = 45
 @pytest.mark.usefixtures("dbus")
 def test_notifications(manager_nospawn, minimal_conf_noscreen):
     def background(obj):
-        _, bground = obj.eval("self.background")
-        return bground
+        return obj.eval("self.background")
 
     notify.Notify.timeout_add = log_timeout
     widget = notify.Notify(
@@ -92,8 +91,7 @@ def test_notifications(manager_nospawn, minimal_conf_noscreen):
     assert obj.info()["text"] == MESSAGE_1
     assert background(obj) == BACKGROUND_NORMAL
 
-    _, timeout = obj.eval("self.delay")
-    assert timeout == "5.0"
+    assert obj.eval("self.delay") == "5.0"
 
     # Send second notification and check time and display time
     notif_2 = [NS]
@@ -102,8 +100,7 @@ def test_notifications(manager_nospawn, minimal_conf_noscreen):
     assert obj.info()["text"] == MESSAGE_2.format(colour=URGENT)
     assert background(obj) == BACKGROUND_URGENT
 
-    _, timeout = obj.eval("self.delay")
-    assert timeout == "10.0"
+    assert obj.eval("self.delay") == "10.0"
 
     # Send third notification
     notif_3 = [NS]
@@ -260,7 +257,7 @@ def test_invoke_and_clear(manager_nospawn, minimal_conf_noscreen):
     # Create our signal listener
     manager_nospawn.c.eval(handler)
 
-    _, result = manager_nospawn.c.eval("self.signal_listener")
+    result = manager_nospawn.c.eval("self.signal_listener")
 
     # Send first notification and check time and display time
     notif_1 = [NS]
@@ -268,10 +265,10 @@ def test_invoke_and_clear(manager_nospawn, minimal_conf_noscreen):
     subprocess.run(notif_1)
 
     # Check that listener hasn't received any signals yet
-    _, result = manager_nospawn.c.eval("self.signal_listener.action_invoked")
+    result = manager_nospawn.c.eval("self.signal_listener.action_invoked")
     assert result == "None"
 
-    _, result = manager_nospawn.c.eval("self.signal_listener.notification_closed")
+    result = manager_nospawn.c.eval("self.signal_listener.notification_closed")
     assert result == "None"
 
     # Clicking on notification dismisses it
@@ -279,18 +276,18 @@ def test_invoke_and_clear(manager_nospawn, minimal_conf_noscreen):
 
     # Signal listener should get the id and close reason
     # id is 1 and dismiss reason is ClosedReason.dismissed which is 2
-    _, result = manager_nospawn.c.eval("self.signal_listener.notification_closed")
+    result = manager_nospawn.c.eval("self.signal_listener.notification_closed")
     assert result == "[1, 2]"
 
     # Send a new notification with defined actions
-    _, res = manager_nospawn.c.eval(notification_with_actions)
+    manager_nospawn.c.eval(notification_with_actions)
 
     # Right-clicking on notification invokes it
     manager_nospawn.c.bar["top"].fake_button_press(0, 0, button=3)
 
     # Signal listener should get the id and close reason
     # id is 2 (as it is the second notification) and action is "default"
-    _, result = manager_nospawn.c.eval("self.signal_listener.action_invoked")
+    result = manager_nospawn.c.eval("self.signal_listener.action_invoked")
     assert result == "[2, 'default']"
 
 
@@ -323,8 +320,7 @@ def test_unregister(manager_nospawn, minimal_conf_noscreen):
     """Short test to check if notifier deregisters correctly."""
 
     def notifier_has_callbacks():
-        _, out = manager_nospawn.c.widget["notify"].eval("notifier.callbacks")
-        return out != "[]"
+        return manager_nospawn.c.widget["notify"].eval("notifier.callbacks") != "[]"
 
     widget = notify.Notify()
     config = minimal_conf_noscreen
@@ -333,7 +329,7 @@ def test_unregister(manager_nospawn, minimal_conf_noscreen):
 
     assert notifier_has_callbacks()
 
-    _ = manager_nospawn.c.widget["notify"].eval("self.finalize()")
+    manager_nospawn.c.widget["notify"].eval("self.finalize()")
 
     assert not notifier_has_callbacks()
 
@@ -362,5 +358,4 @@ def test_notifications_default_timeouts(manager_nospawn, minimal_conf_noscreen, 
     notif.extend(notification("test", "test", urgency=urgency)[1])
     subprocess.run(notif)
 
-    _, delay = obj.eval("self.delay")
-    assert delay == str(timeout)
+    assert obj.eval("self.delay") == str(timeout)

@@ -16,20 +16,20 @@ jobs:
                 # python version in .readthedocs.yaml
                 # TODO: Add back pypy here and in release.yml once:
                 # https://github.com/pypy/pypy/issues/4956 is resolved
-                python-version: ['3.12', '3.13', '3.14-dev']
+                python-version: ['3.12', '3.13', '3.14']
                 backend: ['x11', 'wayland']
         steps:
             - uses: actions/checkout@v4
-            - name: Start httpbin container
-              run: |
-                docker run -d --name httpbin -p 8080:80 kennethreitz/httpbin
-                timeout 30 bash -c 'until curl -s http://localhost:8080/get > /dev/null; do sleep 1; done'
             - name: Set up python ${{ matrix.python-version }}
               uses: actions/setup-python@v5
               with:
                   python-version: ${{ matrix.python-version }}
-            - name: Install uv
-              run: curl -LsSf https://astral.sh/uv/install.sh | sh
+            - name: Set up uv
+              uses: astral-sh/setup-uv@v6
+              with:
+                  enable-cache: true
+                  cache-dependency-glob: "pyproject.toml"
+                  python-version: ${{ matrix.python-version }}
             - name: Install dependencies
               run: |
                 sudo apt update
@@ -61,8 +61,7 @@ jobs:
             - name: Upload coverage data to coveralls.io
               continue-on-error: true
               run: |
-                pip -q install coveralls >=3.3.0
-                coveralls --service=github
+                uv tool run coveralls --service=github
               env:
                 GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                 COVERALLS_FLAG_NAME: ${{ format('{0}-{1}', matrix.python-version, matrix.backend) }}
