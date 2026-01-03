@@ -13,9 +13,10 @@ from libqtile.log_utils import logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
-    from typing import Any
+    from typing import Any, Literal
 
     from libqtile.backend import base
+    from libqtile.backend.base.idle_notify import IdleAction
     from libqtile.bar import BarType
     from libqtile.command.base import ItemT
     from libqtile.core.manager import Qtile
@@ -394,8 +395,17 @@ class Screen(CommandObject):
     drawn, so you can set the background color for an image by setting
     background here.
 
-    The ``x11_drag_polling_rate`` parameter specifies the rate for drag events in the X11 backend. By default this is set to None, indicating no limit. Because in the X11 backend we already handle motion notify events later, the performance should already be okay. However, to limit these events further you can use this variable and e.g. set it to your monitor refresh rate. 60 would mean that we handle a drag event 60 times per second.
+    The ``x11_drag_polling_rate`` parameter specifies the rate for drag events
+    in the X11 backend. By default this is set to None, indicating no limit.
+    Because in the X11 backend we already handle motion notify events later,
+    the performance should already be okay. However, to limit these events
+    further you can use this variable and e.g. set it to your monitor refresh
+    rate. 60 would mean that we handle a drag event 60 times per second.
 
+    ``serial`` is optionally the serial number of the monitor this Screen's
+    config should be bound to. You can find this via ``get-edid -b $BUS |
+    parse-edid``, or by looking at the sticker on the back of your monitor :).
+    This is mostly useful for people with multi-monitor configs.
     """
 
     group: _Group
@@ -415,6 +425,7 @@ class Screen(CommandObject):
         y: int | None = None,
         width: int | None = None,
         height: int | None = None,
+        serial: str | None = None,
     ) -> None:
         self.top = top
         self.bottom = bottom
@@ -432,6 +443,8 @@ class Screen(CommandObject):
         self.width = width if width is not None else 0
         self.height = height if height is not None else 0
         self.previous_group: _Group | None = None
+        self.serial = serial
+        self.name: str | None = None
 
     def __eq__(self, other: object) -> bool:
         # When we trigger a reconfigure_screens(), _process_screens()
@@ -451,14 +464,19 @@ class Screen(CommandObject):
         # This will fail, because the group's object is stale, and we will not
         # focus things correctly. This is one example, but there are several
         # other object trees that save copies of the current screen.
-        #
-        # One problem with this approach is: if the reconfigure_screens() event
-        # comes as a result of a geometry change, this comparison will still
-        # fail. To fix this, we need to uniquely identify each Screen, which we
-        # can do via EDID info in some future work. For now, this makes things
-        # better than it was :)
         if not isinstance(other, Screen):
             return False
+
+        # prefer serial numbers: if a monitor has its geometry changed, this
+        # still allows us to reason correctly about focus.
+        if (
+            self.serial is not None
+            and other.serial is not None
+            and self.serial.strip() != "000000000000"
+        ):
+            return self.serial == other.serial
+
+        # but if not, fall back to what we have: geometry.
         return (
             other.x == self.x
             and other.y == self.y
@@ -514,7 +532,6 @@ class Screen(CommandObject):
     def finalize_gap(self, position: str) -> None:
         gap = getattr(self, position, None)
         if gap is not None:
-            setattr(self, position, None)
             gap.finalize()
 
     def finalize_gaps(self) -> None:
@@ -679,9 +696,17 @@ class Screen(CommandObject):
         self.group.layout_all()
 
     @expose_command()
-    def info(self) -> dict[str, int]:
+    def info(self) -> dict[str, Any]:
         """Returns a dictionary of info for this screen."""
-        return dict(index=self.index, width=self.width, height=self.height, x=self.x, y=self.y)
+        return dict(
+            index=self.index,
+            width=self.width,
+            height=self.height,
+            x=self.x,
+            y=self.y,
+            serial=self.serial,
+            name=self.name,
+        )
 
     @expose_command()
     def next_group(
@@ -1140,6 +1165,79 @@ class Rule:
             self, ["group", "float", "intrusive", "break_on_match"]
         )
         return f"<Rule match={self.matchlist!r} actions=({actions})>"
+
+
+class IdleTimer:
+    """
+    Creates a timer that will trigger an action when the system has been idle
+    for a specified amount of time. An action can also be triggered when user input
+    has been detected (NB this will only fire if the idle time is greater or equal to
+    the specified timeout).
+
+    IdleNotifier takes the following arguments:
+      - ``timeout``: (int) timeout in seconds
+      - ``action``: (callable or ``LazyCall``) the action to run when the timeout period is met (optional).
+      - ``resume``: (callable or ``LazyCall``) the action run when user input is detected (optional).
+      - ``respect_inhibitor``: (boolean) whether the action should be fired if there is an active idle inhibitor
+                               (default ``True``).
+
+    ``action`` and ``resume`` can also take coroutines so that the actions are run asynchronously.
+
+    At least one of ``action`` and ``resume`` must be set.
+    """
+
+    def __init__(
+        self,
+        timeout: int,
+        action: IdleAction = None,
+        resume: IdleAction = None,
+        respect_inhibitor: bool = True,
+    ) -> None:
+        if not (action or resume):
+            raise ValueError("You must set one of 'action' or 'resume'.")
+
+        if not isinstance(timeout, int) or timeout < 0:
+            raise ValueError(f"Invalid idle timeout specified: {timeout}.")
+
+        self.timeout = timeout
+        self.action = action
+        self.resume = resume
+        self.respect_inhibitor = respect_inhibitor
+        self.fired = False
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, IdleTimer):
+            return False
+        return self.timeout == other.timeout
+
+    def __lt__(self, other: Any) -> bool:
+        if not isinstance(other, IdleTimer):
+            return False
+        return self.timeout < other.timeout
+
+
+class IdleInhibitor:
+    """
+    Create rules for when the compositor should not go into an idle state.
+
+    IdleInhibitor take two arguments:
+      -  match: a ``Match`` object to define which windows the rule should apply to. If unset, it will apply to all windows.
+                Note: qtile evaluates whether a rule matches a window once, when the window is first created.
+      -  when: one of the following strings:
+        - "focus" (default): Inhibitor is active when the matching window is the currently focused window
+        - "fullscreen": Inhibitor is active when the matching window is fullscreen
+        - "visible": Inhibitor is active when the matching window is visible on any screen
+                     (still applies if window is completely covered by a floating window)
+        - "open": Inhibitor is active when the matching window is open (even if hidden)
+    """
+
+    def __init__(
+        self,
+        match: _Match | None = None,
+        when: Literal["focus" | "fullscreen" | "visible" | "open"] = "open",
+    ):
+        self.match = match
+        self.when = when
 
 
 class DropDown(configurable.Configurable):

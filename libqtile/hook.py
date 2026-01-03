@@ -1049,6 +1049,60 @@ hooks: list[Hook] = [
         """,
         _user_hook_func,
     ),
+    Hook(
+        "locked",
+        """
+        Called when the user session is locked.
+
+        Currently only available on Wayland.
+
+        .. code::
+
+          from libqtile import hook, qtile
+
+          @hook.subscribe.locked
+          def stop_media():
+              qtile.spawn("playerctl --all-players pause")
+
+        """,
+    ),
+    Hook(
+        "unlocked",
+        """
+        Called when the user session is unlocked.
+
+        Currently only available on Wayland.
+
+        .. code::
+
+          from libqtile import hook, qtile
+
+          @hook.subscribe.unlocked
+          def play_resume_sound():
+              qtile.spawn("ffplay resume.wav")
+
+        """,
+    ),
+    Hook(
+        "idle_inhibitor_change",
+        """
+        Called when the backend's idle inhibitor state changes.
+
+        **Arguments**
+
+            ``inhibited`` (bool):  Whether an idle inhibitor is active or not.
+
+        .. code::
+
+          from libqtile import hook
+          from libqtile.log_utils import logger
+
+          @hook.subscribe.idle_inhibitor_change
+          def on_idle_inhibit(inhibited):
+              logger.info(f"Backend inhibitor is {'on' if inhibited else 'off'}")
+
+        """,
+    ),
 ]
 
 

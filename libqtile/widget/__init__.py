@@ -15,7 +15,6 @@ widgets = {
     "Chord": "chord",
     "Clipboard": "clipboard",
     "Clock": "clock",
-    "Cmus": "cmus",
     "Countdown": "countdown",
     "CryptoTicker": "crypto_ticker",
     "CurrentLayout": "currentlayout",
@@ -42,7 +41,6 @@ widgets = {
     "Memory": "memory",
     "MemoryGraph": "graph",
     "Mirror": "base",
-    "Moc": "moc",
     "Mpd2": "mpd2widget",
     "Mpris2": "mpris2widget",
     "Net": "net",
@@ -79,6 +77,7 @@ widgets = {
     "WindowName": "windowname",
     "WindowTabs": "windowtabs",
     "Wlan": "wlan",
+    "WlanIw": "wlaniw",
     "Wttr": "wttr",
 }
 

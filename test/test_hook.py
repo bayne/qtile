@@ -5,8 +5,7 @@ import pytest
 
 import libqtile.log_utils
 import libqtile.utils
-from libqtile import config, hook, layout
-from libqtile.config import Match
+from libqtile import hook, layout
 from libqtile.resources import default_config
 from test.conftest import BareConfig, dualmonitor
 from test.helpers import Retry
@@ -28,9 +27,7 @@ class NoArgCall(Call):
 @pytest.fixture
 def hook_fixture():
     libqtile.log_utils.init_log()
-
     yield
-
     hook.clear()
 
 
@@ -300,8 +297,7 @@ class CallGroupname:
 
 @Retry(ignore_exceptions=(AssertionError))
 def assert_groupname(mgr_nospawn, groupname):
-    _, _groupname = mgr_nospawn.c.eval("self.config.test.groupname")
-    assert _groupname == groupname
+    assert mgr_nospawn.c.eval("self.config.test.groupname") == groupname
 
 
 @pytest.mark.usefixtures("hook_fixture")
@@ -457,10 +453,8 @@ class CallGroupWindow:
 
 @Retry(ignore_exceptions=(AssertionError))
 def assert_group_window(mgr_nospawn, group, window):
-    _, _group = mgr_nospawn.c.eval("self.config.test.group")
-    _, _window = mgr_nospawn.c.eval("self.config.test.window")
-    assert _group == group
-    assert _window == window
+    assert mgr_nospawn.c.eval("self.config.test.group") == group
+    assert mgr_nospawn.c.eval("self.config.test.window") == window
 
 
 @pytest.mark.usefixtures("hook_fixture")
@@ -496,8 +490,7 @@ class CallWindow:
 
 @Retry(ignore_exceptions=(AssertionError))
 def assert_window(mgr_nospawn, window):
-    _, _window = mgr_nospawn.c.eval("self.config.test.window")
-    assert _window == window
+    assert mgr_nospawn.c.eval("self.config.test.window") == window
 
 
 @pytest.mark.usefixtures("hook_fixture")
@@ -578,22 +571,20 @@ def test_client_name_updated(manager_nospawn):
 
 
 @pytest.mark.usefixtures("hook_fixture")
-def test_client_urgent_hint_changed(manager_nospawn, backend_name):
-    if backend_name == "wayland":
-        pytest.skip("Core not listening to XDG request_activate_event ?")
-
+def test_client_urgent_hint_changed(manager_nospawn):
     class ClientUrgentHintChangedConfig(BareConfig):
-        groups = [
-            config.Group("a"),
-            config.Group("b", matches=[Match(title="Test Client")]),
-        ]
-        focus_on_window_activation = "urgent"
         test = CallWindow()
         hook.subscribe.client_urgent_hint_changed(test)
 
     manager_nospawn.start(ClientUrgentHintChangedConfig)
-    manager_nospawn.test_window("Test Client", urgent_hint=True)
+    manager_nospawn.test_window("Test Client", urgent=True)
+    manager_nospawn.c.screen.next_group()
     assert_window(manager_nospawn, "Test Client")
+    # Get urgency of the window
+    assert manager_nospawn.c.eval("self.normal_windows()[0].urgent") == "True"
+    # Refocusing the window should clear the urgency
+    manager_nospawn.c.screen.prev_group()
+    assert manager_nospawn.c.eval("self.normal_windows()[0].urgent") == "False"
 
 
 class CallLayoutGroup:
@@ -608,10 +599,8 @@ class CallLayoutGroup:
 
 @Retry(ignore_exceptions=(AssertionError))
 def assert_layout_group(mgr_nospawn, layout, group):
-    _, _layout = mgr_nospawn.c.eval("self.config.test.layout")
-    assert _layout == layout
-    _, _group = mgr_nospawn.c.eval("self.config.test.group")
-    assert _group == group
+    assert mgr_nospawn.c.eval("self.config.test.layout") == layout
+    assert mgr_nospawn.c.eval("self.config.test.group") == group
 
 
 @pytest.mark.usefixtures("hook_fixture")

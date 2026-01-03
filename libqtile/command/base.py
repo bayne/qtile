@@ -24,6 +24,15 @@ if TYPE_CHECKING:
     ItemT = tuple[bool, list[str | int]] | None
 
 
+def allow_when_locked(func: Callable) -> Callable:
+    """
+    Decorator to expose methods which can be run when the
+    session is locked.
+    """
+    setattr(func, "_allow_when_locked", True)
+    return func
+
+
 def expose_command(name: Callable | str | list[str] | None = None) -> Callable:
     """
     Decorator to expose methods to the command interface.
@@ -296,23 +305,18 @@ class CommandObject(metaclass=abc.ABCMeta):
         return str(signature)
 
     @expose_command()
-    def eval(self, code: str) -> tuple[bool, str | None]:
+    def eval(self, code: str) -> str | None:
         """Evaluates code in the same context as this function
 
-        Return value is tuple `(success, result)`, success being a boolean and
-        result being a string representing the return value of eval, or None if
+        Return a string representing the return value of eval, or None if
         exec was used instead.
         """
+        globals_ = vars(sys.modules[self.__module__])
         try:
-            globals_ = vars(sys.modules[self.__module__])
-            try:
-                return True, str(eval(code, globals_, locals()))
-            except SyntaxError:
-                exec(code, globals_, locals())
-                return True, None
-        except Exception:
-            error = traceback.format_exc().strip().split("\n")[-1]
-            return False, error
+            return str(eval(code, globals_, locals()))
+        except SyntaxError:
+            exec(code, globals_, locals())
+            return None
 
     @expose_command()
     def function(self, function, *args, **kwargs) -> asyncio.Task | None:

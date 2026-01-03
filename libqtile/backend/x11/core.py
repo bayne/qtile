@@ -14,9 +14,11 @@ from xcffib.xproto import EventMask
 
 from libqtile import config, hook, utils
 from libqtile.backend import base
+from libqtile.backend.base.core import Output
+from libqtile.backend.base.idle_inhibit import IdleInhibitorManager, Inhibitor
 from libqtile.backend.x11 import window, xcbq
+from libqtile.backend.x11.idle_notify import IdleNotifier
 from libqtile.backend.x11.xkeysyms import keysyms
-from libqtile.config import ScreenRect
 from libqtile.log_utils import logger
 from libqtile.utils import QtileError
 
@@ -168,6 +170,9 @@ class Core(base.Core):
 
         self.last_focused: base.Window | None = None
 
+        self.idle_inhibitor_manager: IdleInhibitorManager[Inhibitor] = IdleInhibitorManager(self)
+        self.idle_notifier = IdleNotifier(self)
+
     @property
     def name(self):
         return "x11"
@@ -182,7 +187,7 @@ class Core(base.Core):
             delattr(self, "qtile")
         self.conn.finalize()
 
-    def get_screen_info(self) -> list[ScreenRect]:
+    def get_output_info(self) -> list[Output]:
         return self.conn.pseudoscreens
 
     @property
@@ -286,6 +291,10 @@ class Core(base.Core):
         self._root.set_input_focus()
         self._root.set_property("_NET_ACTIVE_WINDOW", self._root.wid)
 
+    def clear_focus(self):
+        """Clear _NET_ACTIVE_WINDOW so that there is no focused window"""
+        self._root.set_property("_NET_ACTIVE_WINDOW", 0)
+
     def convert_selection(self, selection_atom, _type="UTF8_STRING") -> None:
         type_atom = self.conn.atoms[_type]
         self.conn.conn.core.ConvertSelection(
@@ -316,6 +325,9 @@ class Core(base.Core):
                     break
 
                 if event.__class__ in _IGNORED_EVENTS:
+                    continue
+
+                if self.idle_notifier.check_event(event):
                     continue
 
                 # Motion Notifies are handled later
@@ -916,8 +928,3 @@ class Core(base.Core):
             self.last_focused.change_layer()
 
         self.last_focused = win
-
-    @property
-    def hovered_window(self) -> base.WindowType | None:
-        _hovered_window = self.conn.conn.core.QueryPointer(self._root.wid).reply().child
-        return self.qtile.windows_map.get(_hovered_window)

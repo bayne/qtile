@@ -1,6 +1,9 @@
-self: final: prev:
+{
+  pkgs,
+  self,
+}:
 let
-  inherit (prev) pkgs lib;
+  inherit (pkgs) lib;
 
   build-config = import ./build-config.nix pkgs;
 
@@ -19,6 +22,15 @@ let
     in
     "${symver}+${flakever}.flake";
 
+  removeOldDeps =
+    dep:
+    !(pkgs.lib.hasAttr "pname" dep)
+    || (
+      dep.pname != pkgs.python3Packages.pywlroots.pname
+      && dep.pname != pkgs.python3Packages.pywayland.pname
+      && dep.pname != pkgs.python3Packages.xkbcommon.pname
+    );
+
   qtile-override-func =
     qtile-prev:
     {
@@ -29,12 +41,19 @@ let
       src = ./..; # use the source of the git repo
     }
     // {
-      propagatedBuildInputs =
-        (qtile-prev.propagatedBuildInputs or [ ]) ++ (with pkgs.python3Packages; [ aiohttp ]);
-
       env = build-config.resolved-env-vars;
 
-      pypaBuildFlags = build-config.resolved-config-settings;
+      propagatedBuildInputs =
+        (with pkgs; [
+          wayland-scanner
+          wayland-protocols
+          python3Packages.cffi
+          python3Packages.xcffib
+          python3Packages.aiohttp
+        ])
+        ++ (lib.filter removeOldDeps qtile-prev.propagatedBuildInputs);
+
+      pypaBuildFlags = [ "--config-setting=backend=wayland" ] ++ build-config.resolved-config-settings;
     }
     // {
       # removes nixpkgs patching, as we handle it locally
@@ -43,23 +62,6 @@ let
       patches = [ ];
     };
 in
-{
-  pythonPackagesOverlays = (prev.pythonPackagesOverlays or [ ]) ++ [
-    (
-      _: py-prev:
-      let
-        qtile = py-prev.qtile.overrideAttrs qtile-override-func;
-      in
-      {
-        qtile = qtile.override { wlroots = pkgs.wlroots_0_17; };
-      }
-    )
-  ];
-
-  python3 = prev.python3.override {
-    self = final.python3;
-    packageOverrides = lib.composeManyExtensions final.pythonPackagesOverlays;
-  };
-
-  python3Packages = final.python3.pkgs;
+(pkgs.python3Packages.qtile.overrideAttrs qtile-override-func).override {
+  wlroots = pkgs.wlroots_0_19;
 }

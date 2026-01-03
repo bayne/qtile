@@ -76,6 +76,16 @@ Please also consider submitting useful scripts etc. to the qtile-examples repo
     :alt: Coverage
     :target: https://coveralls.io/github/qtile/qtile
 
+Acknowledgements
+================
+
+Special thanks to the authors of `SwayWM`_, `LabWC`_, and `DWL`_, whose implementations 
+and source code served as inspiration and reference for protocol implementations and 
+architectural patterns while building the Wayland backend (`wayc`) for Qtile.
+
+.. _`SwayWM`: https://github.com/swaywm/sway/blob/master/LICENSE
+.. _`LabWC`: https://github.com/labwc/labwc/blob/master/LICENSE
+.. _`DWL`: https://codeberg.org/dwl/dwl/src/branch/main/LICENSE
 
 Maintainers
 ===========
@@ -83,10 +93,12 @@ Maintainers
 | `@tych0`_ GPG: ``3CCA B226 289D E016 0C61  BDB4 18D1 8F1B C464 DCA3``
 | `@elParaguayo`_ GPG: ``A6BA A1E1 7D26 64AD B97B  2C6F 58A9 AA7C 8672 7DF7``
 | `@jwijenbergh`_ GPG: ``B1C8 1CF3 063B 5836 4946  3687 4827 061B D417 C233``
+| `@richcarni`_ GPG: ``FBB5 0201 8A0E 9CCF AF00  A5F0 9317 80BE 8CA8 83B5``
 
 .. _`@tych0`: https://github.com/tych0
 .. _`@elParaguayo`: https://github.com/elparaguayo
 .. _`@jwijenbergh`: https://github.com/jwijenbergh
+.. _`@richcarni`: https://github.com/richcarni
 
 Maintainers Emeritus
 ====================
