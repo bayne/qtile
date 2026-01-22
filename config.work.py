@@ -16,7 +16,7 @@ from bayne.widgets.outlook_checker import OutlookChecker
 from libqtile import hook
 from libqtile import layout
 from libqtile import log_utils
-from libqtile import widget
+from libqtile.widget.spacer import Spacer
 from libqtile.config import Group
 from libqtile.config import Key
 from libqtile.config import Match
@@ -118,7 +118,7 @@ layouts: List[Layout] = dqhd_workflow.layouts()
 fake_screens: List[Screen] = [
     *dqhd_workflow.fake_screens(extra_widgets=[
         OutlookChecker(),
-        widget.Spacer(),
+        Spacer(),
     ]),
 ]
 fake_screens.insert(SHARE_SCREEN_IDX, Screen(

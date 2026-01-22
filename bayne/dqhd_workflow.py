@@ -60,10 +60,13 @@ class CustomTaskList(TaskList):
             spacing=0,
             padding_y=8,
             padding_x=2,
-            margin=0,
+            margin_x=7,
+            margin_y=0,
             markup_normal="",
             markup_focused=" {}",
             window_name_location=False,
+            border="#215578",
+            unfocused_border="#557983",
             **config
         )
 

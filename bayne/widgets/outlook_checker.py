@@ -1,7 +1,7 @@
 import sys
 from datetime import datetime, timedelta
 
-from libqtile import widget
+from libqtile.widget.base import BackgroundPoll
 from libqtile.log_utils import logger
 
 import subprocess, requests, pytz
@@ -11,7 +11,7 @@ def _get_password(entry):
     result = subprocess.run(["pass", entry], capture_output=True, text=True, check=True)
     return result.stdout.strip()
 
-class OutlookChecker(widget.base.BackgroundPoll):
+class OutlookChecker(BackgroundPoll):
     SHOW_AS_RANK = {
         "busy": 0,
         "tentative": 1,
@@ -27,14 +27,16 @@ class OutlookChecker(widget.base.BackgroundPoll):
     ]
 
     def __init__(self, **config):
-        widget.base.BackgroundPoll.__init__(self, "", **config)
+        BackgroundPoll.__init__(self, "", **config)
         self.add_defaults(OutlookChecker.defaults)
         self.markup = False
         self.foreground_inactive = self.foreground
-        self.url = _get_password("outlook-event-url")
         self.last_update = datetime.now(self.timezone)
         self.previous_response = None
         self.force_update()
+
+    def _config_async(self):
+        self.url = _get_password("outlook-event-url")
 
     def _show_as_rank(self, show_as: str) -> int:
         if show_as not in self.SHOW_AS_RANK:
@@ -79,7 +81,7 @@ class OutlookChecker(widget.base.BackgroundPoll):
 
         return f"[[{subject} {day} @ {start_time}-{end_time}]]"
 
-    def poll(self):
+    async def apoll(self):
         try:
             return self._poll()
         except Exception as e:
