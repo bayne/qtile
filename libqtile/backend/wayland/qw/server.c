@@ -130,6 +130,8 @@ xkb_keysym_t qw_server_get_sym_from_code(struct qw_server *server, int code) {
 void qw_server_keyboard_clear_focus(struct qw_server *server) {
     struct wlr_seat *seat = server->seat;
     wlr_seat_keyboard_clear_focus(seat);
+    // Deactivate any existing pointer constraints
+    qw_cursor_constrain_cursor(server->cursor, NULL);
 }
 
 // Handle when a new output (monitor/display) is connected.
@@ -238,12 +240,6 @@ static void qw_server_output_manager_reconfigure(struct qw_server *server,
             wlr_output_state_set_transform(&state, head->state.transform);
             wlr_output_state_set_scale(&state, head->state.scale);
             wlr_output_state_set_adaptive_sync_enabled(&state, head->state.adaptive_sync_enabled);
-            struct wlr_box box;
-            wlr_output_layout_get_box(server->output_layout, head->state.output, &box);
-            if (box.x != head->state.x || box.y != head->state.y) {
-                wlr_output_layout_add(server->output_layout, head->state.output, head->state.x,
-                                      head->state.y);
-            }
             // TODO rescale the cursor if necessary
             // TODO: cursor_manager.load
             // TODO: set_xcursor if no surface
@@ -254,6 +250,11 @@ static void qw_server_output_manager_reconfigure(struct qw_server *server,
             ok &= wlr_output_test_state(head->state.output, &state);
         }
         wlr_output_state_finish(&state);
+
+        if (apply && ok && head->state.enabled) {
+            wlr_output_layout_add(server->output_layout, head->state.output, head->state.x,
+                                  head->state.y);
+        }
     }
     if (ok) {
         wlr_output_configuration_v1_send_succeeded(config);

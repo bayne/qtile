@@ -406,6 +406,11 @@ class Screen(CommandObject):
     config should be bound to. You can find this via ``get-edid -b $BUS |
     parse-edid``, or by looking at the sticker on the back of your monitor :).
     This is mostly useful for people with multi-monitor configs.
+
+    ``name`` is optionally the output name of the monitor this Screen's config
+    should be bound to. You can find this using utilities like ``wlr-randr``.
+    This is mostly useful for people using the wayland backend with
+    multi-monitor configs (on X11 names may not be stable across boots).
     """
 
     group: _Group
@@ -426,6 +431,7 @@ class Screen(CommandObject):
         width: int | None = None,
         height: int | None = None,
         serial: str | None = None,
+        name: str | None = None,
     ) -> None:
         self.top = top
         self.bottom = bottom
@@ -444,7 +450,7 @@ class Screen(CommandObject):
         self.height = height if height is not None else 0
         self.previous_group: _Group | None = None
         self.serial = serial
-        self.name: str | None = None
+        self.name = name
 
     def __eq__(self, other: object) -> bool:
         # When we trigger a reconfigure_screens(), _process_screens()
@@ -1221,14 +1227,17 @@ class IdleInhibitor:
     Create rules for when the compositor should not go into an idle state.
 
     IdleInhibitor take two arguments:
+
       -  match: a ``Match`` object to define which windows the rule should apply to. If unset, it will apply to all windows.
                 Note: qtile evaluates whether a rule matches a window once, when the window is first created.
       -  when: one of the following strings:
+
         - "focus" (default): Inhibitor is active when the matching window is the currently focused window
         - "fullscreen": Inhibitor is active when the matching window is fullscreen
         - "visible": Inhibitor is active when the matching window is visible on any screen
                      (still applies if window is completely covered by a floating window)
         - "open": Inhibitor is active when the matching window is open (even if hidden)
+
     """
 
     def __init__(

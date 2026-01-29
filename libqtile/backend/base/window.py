@@ -245,6 +245,7 @@ class Window(_Window, metaclass=ABCMeta):
     # If float_x or float_y are None, the window has never been placed
     float_x: int | None
     float_y: int | None
+    bordercolor: ColorsType | None
 
     def __repr__(self):
         return f"{self.__class__.__name__!s}(name={self.name!r}, wid={self.wid:d})"
@@ -588,7 +589,7 @@ class Window(_Window, metaclass=ABCMeta):
     @expose_command()
     def remove_idle_inhibitor(self) -> None:
         """Remove inhibitor rule for this window."""
-        self.qtile.core.idle_inibitor_manager.remove_window_inhibitor(self)
+        self.qtile.core.idle_inhibitor_manager.remove_window_inhibitor(self)
 
 
 class Internal(_Window, metaclass=ABCMeta):
@@ -621,6 +622,12 @@ class Internal(_Window, metaclass=ABCMeta):
 
     def process_key_press(self, keycode: int) -> None:
         """Handle a key press."""
+
+    def paint_borders(self, color: ColorsType, width: int) -> None:
+        """Paint the window borders with the given color(s) and width"""
+
+    def focus(self, warp: bool = True) -> None:
+        """Focus this window and optional warp the pointer to it."""
 
 
 class Static(_Window, metaclass=ABCMeta):

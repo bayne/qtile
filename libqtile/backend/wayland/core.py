@@ -45,6 +45,7 @@ import os
 import signal
 import sys
 import time
+from collections import defaultdict
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -290,8 +291,8 @@ class Core(base.Core):
         lib.qw_log_init(get_wlr_log_level(), lib.log_cb)
 
     def clear_focus(self) -> None:
-        """Clear TODO so that there is no focused window"""
-        # TODO
+        """Clear focus so that there is no focused window"""
+        lib.qw_server_keyboard_clear_focus(self.qw)
 
     def new_wid(self) -> int:
         """Get a new unique window ID"""
@@ -624,7 +625,7 @@ class Core(base.Core):
     def grab_button(self, mouse: config.Mouse) -> int:
         return translate_masks(mouse.modifiers)
 
-    def warp_pointer(self, x: float, y: float) -> None:
+    def warp_pointer(self, x: int, y: int) -> None:
         """Warp the pointer to the coordinates in relative to the output layout"""
         lib.qw_cursor_warp_cursor(self.qw_cursor, x, y)
 
@@ -754,7 +755,26 @@ class Core(base.Core):
     @expose_command()
     def get_inputs(self) -> dict[str, list[dict[str, str]]]:
         """Get information on all input devices."""
-        raise Exception("TODO: implement")
+        info: defaultdict[str, list[dict]] = defaultdict(list)
+
+        @ffi.callback(
+            "void(struct qw_input_device *input_device, char *name, int type, int vendor, int product)"
+        )
+        def input_device_cb(
+            input_device: ffi.CData, name: ffi.CData, type: int, vendor: int, product: int
+        ) -> None:
+            name_dec = ffi.string(name).decode()
+            type_key, identifier = inputs.input_get_info(
+                input_device, name_dec, type, vendor, product
+            )
+            type_info = dict(
+                name=name_dec,
+                identifier=identifier,
+            )
+            info[type_key].append(type_info)
+
+        lib.qw_server_loop_input_devices(self.qw, input_device_cb)
+        return dict(info)
 
     @expose_command()
     def query_tree(self) -> list[int]:

@@ -12,7 +12,7 @@ if typing.TYPE_CHECKING:
     import asyncio
     from typing import Any
 
-    from libqtile.backend.base import Drawer, Internal, WindowType
+    from libqtile.backend.base import Drawer, Internal, Window
     from libqtile.command.base import ItemT
     from libqtile.config import Screen
     from libqtile.core.manager import Qtile
@@ -183,7 +183,7 @@ class Bar(Gap, configurable.Configurable, CommandObject):
         self._saved_size = 0
 
         # Previous window when the bar grabs the keyboard
-        self._saved_focus: WindowType | None = None
+        self._saved_focus: Window | None = None
 
         # Track widgets that are receiving input
         self._has_cursor: _Widget | None = None
@@ -410,7 +410,8 @@ class Bar(Gap, configurable.Configurable, CommandObject):
         if self.future:
             self.future.cancel()
         for widget in self.widgets:
-            widget.finalize()
+            if not widget.finalized:
+                widget.finalize()
         if hasattr(self, "drawer"):
             self.drawer.finalize()
             del self.drawer
@@ -693,7 +694,10 @@ class Bar(Gap, configurable.Configurable, CommandObject):
                 )
 
         for i in self.widgets:
-            i.draw()
+            try:
+                i.draw()
+            except Exception:
+                logger.exception("Widget failed to draw")
 
         # We need to check if there is any unoccupied space in the bar
         # This can happen where there are no SPACER-type widgets to fill

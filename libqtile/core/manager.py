@@ -349,7 +349,8 @@ class Qtile(CommandObject):
         """
         try:
             for widget in self.widgets_map.values():
-                widget.finalize()
+                if not widget.finalized:
+                    widget.finalize()
             self.widgets_map.clear()
 
             # For layouts we need to finalize each clone of a layout in each group
@@ -428,8 +429,7 @@ class Qtile(CommandObject):
         )
 
         for i, info in enumerate(output_info):
-            scr = Screen(serial=info.serial)
-            scr.name = info.name
+            scr = Screen(serial=info.serial, name=info.name)
             fresh_screen = True
 
             # first, try to find a screen that matches this one by serial
@@ -447,6 +447,16 @@ class Qtile(CommandObject):
                     if screen.serial == info.serial:
                         scr = screen
                         fresh_screen = False
+                        logger.debug(
+                            f"using config serial {screen.serial} for output {info.name}"
+                        )
+                        break
+
+                if screen.name is not None:
+                    if screen.name == info.name:
+                        scr = screen
+                        fresh_screen = False
+                        logger.debug(f"using config name {screen.name} for output {info.name}")
                         break
 
             # if we didn't find one by serial number, take the ith screen
@@ -454,13 +464,25 @@ class Qtile(CommandObject):
             if fresh_screen and i < len(config):
                 if config[i].serial is not None and config[i].serial != info.serial:
                     logger.warning(
-                        "using config serial %s for physical serial %s", scr.serial, info.serial
+                        "using config serial %s for output %s with physical serial %s",
+                        config[i].serial,
+                        info.name,
+                        info.serial,
                     )
                     # we need a copy here in case the ith window was a
                     # previously used serial number
                     scr = copy.copy(config[i])
+                elif config[i].name is not None and config[i].name != info.name:
+                    logger.warning(
+                        "using config name %s for output %s with physical name %s",
+                        config[i].name,
+                        info.name,
+                        info.name,
+                    )
+                    scr = copy.copy(config[i])
                 else:
                     scr = config[i]
+                    logger.debug(f"using config at index {i} for output {info.name}")
 
                 scr.serial = info.serial
                 scr.name = info.name
@@ -814,8 +836,8 @@ class Qtile(CommandObject):
             if not win.group and self.current_screen.group:
                 self.current_screen.group.add(win)
 
-        # Check if any user-defined inhibitor rules match the window
-        win.add_config_inhibitors()
+            # Check if any user-defined inhibitor rules match the window
+            win.add_config_inhibitors()
 
         hook.fire("client_managed", win)
 
@@ -1512,6 +1534,12 @@ class Qtile(CommandObject):
             for i in self.windows_map.values()
             if not isinstance(i, base.Internal | _Widget) and isinstance(i, CommandObject)
         ]
+
+    def lookup_client(self, wid: int) -> base.Window | None:
+        w = self.windows_map.get(wid)
+        if isinstance(w, base.Window):
+            return w
+        return None
 
     @expose_command()
     def internal_windows(self) -> list[dict[str, Any]]:

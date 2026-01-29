@@ -1,4 +1,5 @@
 #include "xdg-view.h"
+#include "cursor.h"
 #include "server.h"
 #include "session-lock.h"
 #include "util.h"
@@ -68,6 +69,28 @@ static void qw_xdg_view_do_focus(struct qw_xdg_view *xdg_view, struct wlr_surfac
                                        keyboard->keycodes, keyboard->num_keycodes,
                                        &keyboard->modifiers);
     }
+
+    // Activate/deactivate pointer constraints
+    struct wlr_pointer_constraint_v1 *constraint =
+        wlr_pointer_constraints_v1_constraint_for_surface(server->pointer_constraints, surface,
+                                                          server->seat);
+    qw_cursor_constrain_cursor(server->cursor, constraint);
+}
+
+// Hide the xdg_view (disable scene node and clear keyboard focus if needed)
+static void qw_xdg_view_hide(void *self) {
+    struct qw_xdg_view *xdg_view = (struct qw_xdg_view *)self;
+    wlr_scene_node_set_enabled(&xdg_view->base.content_tree->node, false);
+    qw_xdg_view_activate(xdg_view, false);
+
+    // Clear keyboard focus if this view was focused
+    if (xdg_view->xdg_toplevel->base->surface ==
+        xdg_view->base.server->seat->keyboard_state.focused_surface) {
+        wlr_seat_keyboard_clear_focus(xdg_view->base.server->seat);
+    }
+
+    // View under the cursor may have changed
+    qw_cursor_update_pointer_focus(xdg_view->base.server->cursor);
 }
 
 // Handle the unmap event for the xdg_view (when it's hidden/unmapped)
@@ -78,6 +101,7 @@ static void qw_xdg_view_handle_unmap(struct wl_listener *listener, void *data) {
     qw_view_cleanup_borders((struct qw_view *)xdg_view);
     xdg_view->base.server->unmanage_view_cb((struct qw_view *)&xdg_view->base,
                                             xdg_view->base.server->cb_data);
+    qw_xdg_view_hide(xdg_view);
 
     wl_list_remove(&xdg_view->request_maximize.link);
     wl_list_remove(&xdg_view->request_fullscreen.link);
@@ -141,6 +165,9 @@ static void qw_xdg_view_handle_commit(struct wl_listener *listener, void *data) 
         wlr_scene_node_set_position(&xdg_view->base.content_tree->node, view.x, view.y);
         wlr_xdg_toplevel_set_size(xdg_view->xdg_toplevel, view.width, view.height);
         qw_xdg_view_clip(xdg_view);
+
+        // View under the cursor may have changed
+        qw_cursor_update_pointer_focus(xdg_view->base.server->cursor);
     }
 }
 
@@ -214,25 +241,15 @@ static void qw_xdg_view_place(void *self, int x, int y, int width, int height,
     if (above != 0) {
         qw_view_reparent(&xdg_view->base, LAYER_BRINGTOFRONT);
     }
+
+    // View under the cursor may have changed
+    qw_cursor_update_pointer_focus(xdg_view->base.server->cursor);
 }
 
 // Send close event to the xdg_toplevel surface (kill the view)
 static void qw_xdg_view_kill(void *self) {
     struct qw_xdg_view *xdg_view = (struct qw_xdg_view *)self;
     wlr_xdg_toplevel_send_close(xdg_view->xdg_toplevel);
-}
-
-// Hide the xdg_view (disable scene node and clear keyboard focus if needed)
-static void qw_xdg_view_hide(void *self) {
-    struct qw_xdg_view *xdg_view = (struct qw_xdg_view *)self;
-    wlr_scene_node_set_enabled(&xdg_view->base.content_tree->node, false);
-    qw_xdg_view_activate(xdg_view, false);
-
-    // Clear keyboard focus if this view was focused
-    if (xdg_view->xdg_toplevel->base->surface ==
-        xdg_view->base.server->seat->keyboard_state.focused_surface) {
-        wlr_seat_keyboard_clear_focus(xdg_view->base.server->seat);
-    }
 }
 
 // Unhide the xdg_view by enabling its content_tree scene node if currently disabled
@@ -443,6 +460,11 @@ static void qw_xdg_view_handle_map(struct wl_listener *listener, void *data) {
     xdg_view->base.app_id = xdg_view->xdg_toplevel->app_id;
 
     struct wlr_xdg_toplevel *xdg_toplevel = xdg_view->xdg_toplevel;
+
+    // Create foreign toplevel manager and listeners
+    if (xdg_view->base.ftl_handle == NULL) {
+        qw_view_ftl_manager_handle_create(&xdg_view->base);
+    }
 
     // Set foreign top level attributes
     if (xdg_view->base.ftl_handle != NULL) {
@@ -658,9 +680,6 @@ void qw_server_xdg_view_new(struct qw_server *server, struct wlr_xdg_toplevel *x
     xdg_view->scene_tree =
         wlr_scene_xdg_surface_create(xdg_view->base.content_tree, xdg_toplevel->base);
     xdg_toplevel->base->data = xdg_view;
-
-    // Create foreign toplevel manager and listeners
-    qw_view_ftl_manager_handle_create(&xdg_view->base);
 
     // Assign function pointers for base view operations
     xdg_view->base.get_tree_node = qw_xdg_view_get_tree_node;
