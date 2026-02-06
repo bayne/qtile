@@ -23,6 +23,7 @@ from libqtile.widget.graph import MemoryGraph
 from libqtile.widget.graph import NetGraph
 from libqtile.widget.groupbox import GroupBox
 from libqtile.widget.spacer import Spacer
+from libqtile.widget.systray import Systray
 from libqtile.widget.statusnotifier import StatusNotifier
 from libqtile.widget.tasklist import TaskList
 from libqtile.widget.textbox import TextBox
@@ -366,10 +367,9 @@ class DQHDWorkflow:
                         margin_y=0,
                         border_width=0,
                     ),
-                    CustomStatusNotifier(
+                    Systray(
                         icon_size=ICON_SIZE,
                         padding=4,
-                        icon_theme='Papirus-Dark',
                     ),
                     Spacer(length=4)
                 ],
