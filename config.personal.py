@@ -5,6 +5,8 @@ from enum import Enum
 from re import Pattern
 from typing import List
 
+from pystemd.systemd1 import Unit
+from pystemd.dbuslib import DBus
 from bayne import systemd_logging
 from bayne.default import get_default_floating
 from bayne.default import get_default_mouse
@@ -47,6 +49,11 @@ def startup_once():
     subprocess.Popen(["gtk-launch", "opensnitch_ui"])
 
     subprocess.Popen(["1password", "--silent"])
+
+    with DBus(user_mode=True) as bus:
+        u = Unit('xephyr.service', bus=bus)
+        u.load()
+        u.Unit.Start(b'replace')
 
 class EnvGroup(str, Enum):
     MBP_GROUP = "MBP"

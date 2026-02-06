@@ -18,12 +18,16 @@ dependencies = [
     "cffi >= 1.1.0",
     "dbus-fast>=2.44.5",
     "debugpy>=1.8.17",
+    "prompt-toolkit>=3.0.52",
     "psutil>=7.1.0",
     "pulsectl-asyncio>=1.2.2",
+    "pystemd>=0.14.0",
     "pytz>=2025.2",
     "pyxdg>=0.28",
     "requests>=2.32.5",
     "systemd-python",
+    "types-python-dateutil>=2.9.0.20260124",
+    "types-pytz>=2025.2.0.20251108",
     "xcffib>=1.4.0",
 ]
 license = "MIT"
