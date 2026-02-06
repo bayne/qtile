@@ -117,7 +117,7 @@ layouts: List[Layout] = dqhd_workflow.layouts()
 # 1280x1440+0+0, 2560x1440+1280+0, 1280x1440+3840+0, 1920x1080+0+1440
 fake_screens: List[Screen] = [
     *dqhd_workflow.fake_screens(extra_widgets=[
-        OutlookChecker(),
+        #OutlookChecker(),
         Spacer(),
     ]),
 ]
