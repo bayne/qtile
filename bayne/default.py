@@ -41,7 +41,7 @@ def get_default_keys(mod: str, rofi: Rofi | None = None) -> list[Key]:
         # Grow windows. If current window is on the edge of screen and direction
         # will be to screen edge - window would shrink.
         Key([mod], "n", lazy.layout.normalize(), desc="Reset all window sizes"),
-        Key([mod], "t", lazy.spawn("kitty"), desc="Launch terminal"),
+        Key([mod], "t", lazy.spawn("sensible-terminal"), desc="Launch terminal"),
         Key([mod], "q", lazy.window.kill(), desc="Kill focused window"),
         Key([mod, "control"], "r", lazy.restart(), desc="Reload the config"),
         Key([mod, "control"], "q", lazy.shutdown(), desc="Shutdown Qtile"),
