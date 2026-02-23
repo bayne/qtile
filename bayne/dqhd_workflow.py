@@ -1,30 +1,19 @@
-from typing import Dict
-from typing import get_args
-from typing import List
-from typing import Literal
+import json
+from typing import Dict, List, Literal, get_args
 
-from libqtile import bar
-from libqtile import hook
-from libqtile import layout
-from libqtile import log_utils
-from libqtile import qtile
+from libqtile import bar, hook, layout, log_utils, qtile
 from libqtile.backend.base import Window
-from libqtile.config import Group
-from libqtile.config import Key
-from libqtile.config import Screen
+from libqtile.config import Group, Key, Screen
 from libqtile.group import _Group
 from libqtile.layout.base import Layout
-from libqtile.lazy import lazy
-from libqtile.lazy import LazyCall
+from libqtile.lazy import LazyCall, lazy
 from libqtile.widget.base import _Widget
 from libqtile.widget.clock import Clock
-from libqtile.widget.graph import CPUGraph
-from libqtile.widget.graph import MemoryGraph
-from libqtile.widget.graph import NetGraph
+from libqtile.widget.graph import CPUGraph, MemoryGraph, NetGraph
 from libqtile.widget.groupbox import GroupBox
 from libqtile.widget.spacer import Spacer
-from libqtile.widget.systray import Systray
 from libqtile.widget.statusnotifier import StatusNotifier
+from libqtile.widget.systray import Systray
 from libqtile.widget.tasklist import TaskList
 from libqtile.widget.textbox import TextBox
 
@@ -40,6 +29,7 @@ RIGHT_SCREEN_IDX = 2
 
 WorkspaceNumberKey = Literal["1", "2", "3", "4", "5"]
 
+
 def sort_window(group: _Group):
     clients = group.layout.clients
 
@@ -50,14 +40,14 @@ def sort_window(group: _Group):
 
     return _sort_window
 
-class CustomTaskList(TaskList):
 
+class CustomTaskList(TaskList):
     def __init__(self, **config):
         super().__init__(
-            theme_path='/usr/share/icons/Papirus-Dark',
+            theme_path="/usr/share/icons/Papirus-Dark",
             icon_size=ICON_SIZE,
             border_width=4,
-            highlight_method='block',
+            highlight_method="block",
             spacing=0,
             padding_y=8,
             padding_x=2,
@@ -68,7 +58,7 @@ class CustomTaskList(TaskList):
             window_name_location=False,
             border="#215578",
             unfocused_border="#557983",
-            **config
+            **config,
         )
 
     @property
@@ -77,13 +67,19 @@ class CustomTaskList(TaskList):
         windows = sorted(windows, key=sort_window(self.bar.screen.group))
         return windows
 
+
 class CustomStatusNotifier(StatusNotifier):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info("CustomStatusNotifier initialized")
 
+
 def _groups(prefix: str, screen_affinity: int) -> Dict[WorkspaceNumberKey, Group]:
-    return { i: Group(name=f'{prefix}{i}', screen_affinity=screen_affinity) for i in get_args(WorkspaceNumberKey) }
+    return {
+        i: Group(name=f"{prefix}{i}", screen_affinity=screen_affinity)
+        for i in get_args(WorkspaceNumberKey)
+    }
+
 
 class DQHDWorkflow:
     def __init__(
@@ -97,12 +93,14 @@ class DQHDWorkflow:
         self.inactive_bar = inactive_bar
         self.warp = warp
         self.theme_mode = theme_mode
-        self.main_groups: Dict[WorkspaceNumberKey, Group] = _groups('M', MAIN_SCREEN_IDX)
-        self.left_groups: Dict[WorkspaceNumberKey, Group] = _groups('L', LEFT_SCREEN_IDX)
-        self.right_groups: Dict[WorkspaceNumberKey, Group] = _groups('R', RIGHT_SCREEN_IDX)
+        self.main_groups: Dict[WorkspaceNumberKey, Group] = _groups("M", MAIN_SCREEN_IDX)
+        self.left_groups: Dict[WorkspaceNumberKey, Group] = _groups("L", LEFT_SCREEN_IDX)
+        self.right_groups: Dict[WorkspaceNumberKey, Group] = _groups("R", RIGHT_SCREEN_IDX)
         self.last_main_group = None
 
-    def register_hooks(self,):
+    def register_hooks(
+        self,
+    ):
 
         @hook.subscribe.client_name_updated
         async def on_client_name_updated(client):
@@ -129,7 +127,10 @@ class DQHDWorkflow:
         @hook.subscribe.setgroup
         def set_last_main_group(*_):
             group_name = qtile.current_screen.group.name
-            if group_name in [g.name for g in self.main_groups.values()] and self.last_main_group != group_name:
+            if (
+                group_name in [g.name for g in self.main_groups.values()]
+                and self.last_main_group != group_name
+            ):
                 self.last_main_group = group_name
 
     def groups(self):
@@ -141,7 +142,10 @@ class DQHDWorkflow:
 
     def _main_screen(self, _qtile):
         _qtile.focus_screen(MAIN_SCREEN_IDX, warp=self.warp)
-        if self.last_main_group is not None and _qtile.current_screen.group.name != self.last_main_group:
+        if (
+            self.last_main_group is not None
+            and _qtile.current_screen.group.name != self.last_main_group
+        ):
             _qtile.screens[MAIN_SCREEN_IDX].toggle_group(self.last_main_group)
 
     def get_group_for_current_screen(self, _qtile, number: WorkspaceNumberKey) -> _Group:
@@ -152,15 +156,14 @@ class DQHDWorkflow:
         elif _qtile.current_screen == _qtile.screens[RIGHT_SCREEN_IDX]:
             return _qtile.groups_map.get(self.right_groups[number].name)
         else:
-            raise ValueError(
-                f"current_screen is not in screens: {_qtile.current_screen}"
-            )
+            raise ValueError(f"current_screen is not in screens: {_qtile.current_screen}")
 
     def _group_switch(self, number: WorkspaceNumberKey) -> LazyCall:
         def _switch(_qtile):
             _group = self.get_group_for_current_screen(_qtile, number)
             if _group:
                 _qtile.current_screen.set_group(_group)
+
         return lazy.function(_switch)
 
     def _move_window_to_group(self, number: WorkspaceNumberKey) -> LazyCall:
@@ -168,6 +171,7 @@ class DQHDWorkflow:
             _group = self.get_group_for_current_screen(_qtile, number)
             if _group:
                 _qtile.current_window.togroup(_group.name)
+
         return lazy.function(_move)
 
     def _screen_move_left(self, _qtile):
@@ -203,20 +207,24 @@ class DQHDWorkflow:
     @staticmethod
     def components(group: Group | str):
         name = group if isinstance(group, str) else group.name
-        if name == 'MBP':
-            return 'MBP', 1
+        if name == "MBP":
+            return "MBP", 1
         return name[0], int(name[1:])
 
     @staticmethod
     def get_screen_idx(group: Group):
         match DQHDWorkflow.components(group):
-            case 'M', _: return MAIN_SCREEN_IDX
-            case 'L', _: return LEFT_SCREEN_IDX
-            case 'R', _: return RIGHT_SCREEN_IDX
-            case _: return MAIN_SCREEN_IDX
+            case "M", _:
+                return MAIN_SCREEN_IDX
+            case "L", _:
+                return LEFT_SCREEN_IDX
+            case "R", _:
+                return RIGHT_SCREEN_IDX
+            case _:
+                return MAIN_SCREEN_IDX
 
     @staticmethod
-    def focus(window, warp = False):
+    def focus(window, warp=False):
         if not window.group:
             return
 
@@ -238,23 +246,28 @@ class DQHDWorkflow:
         current_windows = list(map(lambda s: s.group.current_window.wid, current_windows))
 
         def active_distance(w):
-            return 0 if w['id'] in current_windows else 1
+            return 0 if w["id"] in current_windows else 1
 
         def group_distance(w):
-            _, n = DQHDWorkflow.components(w['group'])
+            _, n = DQHDWorkflow.components(w["group"])
             _, cn = DQHDWorkflow.components(current_group.name)
             return abs(n - cn)
 
         def screen_distance(w):
-            group = DQHDWorkflow.components(w['group'])
+            group = DQHDWorkflow.components(w["group"])
             cg, cn = DQHDWorkflow.components(current_group.name)
 
             match group:
-                case g, _ if g == cg: return 0
-                case 'M', _: return 1
-                case 'L', _: return 2
-                case 'R', _: return 3
-                case _: return 4
+                case g, _ if g == cg:
+                    return 0
+                case "M", _:
+                    return 1
+                case "L", _:
+                    return 2
+                case "R", _:
+                    return 3
+                case _:
+                    return 4
 
         def rank(w):
             return (
@@ -265,57 +278,79 @@ class DQHDWorkflow:
 
         def find_closest():
             windows = _qtile.windows()
-            windows = filter(lambda w: w['group'] != 'MBP', windows)
-            windows = list(filter(lambda w: 'Alacritty' in w['wm_class'], windows))
+            windows = filter(lambda w: w["group"] != "MBP", windows)
+            windows = list(filter(lambda w: "kitty" in w["wm_class"], windows))
             if not windows:
                 return None
-            wid = min(windows, key=lambda w: rank(w))['id']
+            wid = min(windows, key=lambda w: rank(w))["id"]
             return _qtile.windows_map.get(wid)
 
         closest = find_closest()
         if closest:
             DQHDWorkflow.focus(closest, warp=True)
         else:
-            _qtile.spawn('alacritty')
+            _qtile.spawn("kitty")
 
-    def keys(self, mod = "mod4") -> List[Key]:
+    def keys(self, mod="mod4") -> List[Key]:
         keys = []
 
         for number_key in get_args(WorkspaceNumberKey):
-            keys.extend([
+            keys.extend(
+                [
+                    Key(
+                        [mod],
+                        number_key,
+                        self._group_switch(number_key),
+                        desc=f"Switch to group {number_key}",
+                    ),
+                    Key(
+                        [mod, "shift"],
+                        number_key,
+                        self._move_window_to_group(number_key),
+                        desc=f"Switch to group {number_key}",
+                    ),
+                ]
+            )
+
+        keys.append(Key([mod], "grave", lazy.function(self._main_screen), desc="last main group"))
+
+        # https://github.com/qtile/qtile/blob/master/libqtile/backend/x11/xkeysyms.py
+        keys.extend(
+            [
+                Key([mod], "h", lazy.function(self._screen_move_left), desc="Move focus to left"),
                 Key(
-                    [mod],
-                    number_key,
-                    self._group_switch(number_key),
-                    desc=f"Switch to group {number_key}"
+                    [mod], "l", lazy.function(self._screen_move_right), desc="Move focus to right"
+                ),
+                Key([mod], "j", lazy.layout.down(), desc="Move focus down"),
+                Key([mod], "k", lazy.layout.up(), desc="Move focus up"),
+                Key([mod], "Tab", lazy.layout.next(), desc="Move window focus to next window"),
+                Key(
+                    [mod], "t", lazy.function(DQHDWorkflow._open_terminal), desc="Launch terminal"
                 ),
                 Key(
                     [mod, "shift"],
-                    number_key,
-                    self._move_window_to_group(number_key),
-                    desc=f"Switch to group {number_key}"
+                    "Tab",
+                    lazy.layout.previous(),
+                    desc="Move window focus to prev window",
                 ),
-            ])
-
-        keys.append(Key([mod], "grave",
-            lazy.function(self._main_screen),
-            desc="last main group"
-        ))
-
-        # https://github.com/qtile/qtile/blob/master/libqtile/backend/x11/xkeysyms.py
-        keys.extend([
-            Key([mod], "h", lazy.function(self._screen_move_left), desc="Move focus to left"),
-            Key([mod], "l", lazy.function(self._screen_move_right), desc="Move focus to right"),
-            Key([mod], "j", lazy.layout.down(), desc="Move focus down"),
-            Key([mod], "k", lazy.layout.up(), desc="Move focus up"),
-            Key([mod], "Tab", lazy.layout.next(), desc="Move window focus to next window"),
-            Key([mod], "t", lazy.function(DQHDWorkflow._open_terminal), desc="Launch terminal"),
-            Key([mod, "shift"], "Tab", lazy.layout.previous(), desc="Move window focus to prev window"),
-            Key([mod, "shift"], "h", lazy.function(self._screen_move_window_left), lazy.function(self._screen_move_left), desc="Move window to the left"),
-            Key([mod, "shift"], "l", lazy.function(self._screen_move_window_right), lazy.function(self._screen_move_right), desc="Move window to the right"),
-            Key([mod, "shift"], "j", lazy.layout.shuffle_down(), desc="Move window down"),
-            Key([mod, "shift"], "k", lazy.layout.shuffle_up(), desc="Move window up"),
-        ])
+                Key(
+                    [mod, "shift"],
+                    "h",
+                    lazy.function(self._screen_move_window_left),
+                    lazy.function(self._screen_move_left),
+                    desc="Move window to the left",
+                ),
+                Key(
+                    [mod, "shift"],
+                    "l",
+                    lazy.function(self._screen_move_window_right),
+                    lazy.function(self._screen_move_right),
+                    desc="Move window to the right",
+                ),
+                Key([mod, "shift"], "j", lazy.layout.shuffle_down(), desc="Move window down"),
+                Key([mod, "shift"], "k", lazy.layout.shuffle_up(), desc="Move window up"),
+            ]
+        )
 
         return keys
 
@@ -335,69 +370,95 @@ class DQHDWorkflow:
         # 5120x1440
         # 1280x1440+0+0, 2560x1440+1280+0, 1280x1440+3840+0
         fake_screens: List[Screen] = []
-        fake_screens.insert(MAIN_SCREEN_IDX, Screen(
-            background=BACKGROUND_COLOR,
-            top=bar.Bar(
-                widgets=[
-                    GroupBox(visible_groups=[g.name for g in self.main_groups.values()]),
-                    CustomTaskList(
-                        parse_text=self._main_screen_window_name_parse,
-                        theme_mode=self.theme_mode,
-                    ),
-                    Clock(format="%a %b %d %I:%M:%S %p"),
-                    *extra_widgets,
-                    TextBox(fmt="net", ),
-                    NetGraph(
-                        type='line',
-                        margin_x=0,
-                        margin_y=0,
-                        border_width=0,
-                    ),
-                    TextBox(fmt="cpu", ),
-                    CPUGraph(
-                        type='line',
-                        margin_x=0,
-                        margin_y=0,
-                        border_width=0,
-                    ),
-                    TextBox(fmt="mem", ),
-                    MemoryGraph(
-                        type='line',
-                        margin_x=0,
-                        margin_y=0,
-                        border_width=0,
-                    ),
-                    Systray(
-                        icon_size=ICON_SIZE,
-                        padding=4,
-                    ),
-                    Spacer(length=4)
-                ],
-                size=BAR_SIZE,
-                background=self.active_bar,
+        fake_screens.insert(
+            MAIN_SCREEN_IDX,
+            Screen(
+                background=BACKGROUND_COLOR,
+                top=bar.Bar(
+                    widgets=[
+                        GroupBox(visible_groups=[g.name for g in self.main_groups.values()]),
+                        CustomTaskList(
+                            parse_text=self._main_screen_window_name_parse,
+                            theme_mode=self.theme_mode,
+                        ),
+                        Clock(format="%a %b %d %I:%M:%S %p"),
+                        *extra_widgets,
+                        TextBox(
+                            fmt="net",
+                        ),
+                        NetGraph(
+                            type="line",
+                            margin_x=0,
+                            margin_y=0,
+                            border_width=0,
+                        ),
+                        TextBox(
+                            fmt="cpu",
+                        ),
+                        CPUGraph(
+                            type="line",
+                            margin_x=0,
+                            margin_y=0,
+                            border_width=0,
+                        ),
+                        TextBox(
+                            fmt="mem",
+                        ),
+                        MemoryGraph(
+                            type="line",
+                            margin_x=0,
+                            margin_y=0,
+                            border_width=0,
+                        ),
+                        Systray(
+                            icon_size=ICON_SIZE,
+                            padding=4,
+                        ),
+                        Spacer(length=4),
+                    ],
+                    size=BAR_SIZE,
+                    background=self.active_bar,
+                ),
+                x=1280,
+                y=0,
+                width=2560,
+                height=1440,
             ),
-            x=1280, y=0, width=2560, height=1440,
-        ))
-        fake_screens.insert(LEFT_SCREEN_IDX, Screen(
-            background=BACKGROUND_COLOR,
-            top=bar.Bar(
-                widgets=[
-                    GroupBox(visible_groups=[g.name for g in self.left_groups.values()]),
-                    CustomTaskList(
-                        theme_mode=self.theme_mode
-                    ),
-                ], size=BAR_SIZE, background=self.active_bar, ),
-            x=0, y=0, width=1280, height=1440,
-        ))
-        fake_screens.insert(RIGHT_SCREEN_IDX, Screen(
-            background=BACKGROUND_COLOR,
-            top=bar.Bar(
-                widgets=[
-                    GroupBox(visible_groups=[g.name for g in self.right_groups.values()]),
-                    CustomTaskList(
-                        theme_mode=self.theme_mode
-                    ),
-                ], size=BAR_SIZE, background=self.active_bar, ),
-            x=3840, y=0, width=1280, height=1440,
-        ))
+        )
+        fake_screens.insert(
+            LEFT_SCREEN_IDX,
+            Screen(
+                background=BACKGROUND_COLOR,
+                top=bar.Bar(
+                    widgets=[
+                        GroupBox(visible_groups=[g.name for g in self.left_groups.values()]),
+                        CustomTaskList(theme_mode=self.theme_mode),
+                    ],
+                    size=BAR_SIZE,
+                    background=self.active_bar,
+                ),
+                x=0,
+                y=0,
+                width=1280,
+                height=1440,
+            ),
+        )
+        fake_screens.insert(
+            RIGHT_SCREEN_IDX,
+            Screen(
+                background=BACKGROUND_COLOR,
+                top=bar.Bar(
+                    widgets=[
+                        GroupBox(visible_groups=[g.name for g in self.right_groups.values()]),
+                        CustomTaskList(theme_mode=self.theme_mode),
+                    ],
+                    size=BAR_SIZE,
+                    background=self.active_bar,
+                ),
+                x=3840,
+                y=0,
+                width=1280,
+                height=1440,
+            ),
+        )
         return fake_screens
