@@ -44,7 +44,7 @@ def sort_window(group: _Group):
 class CustomTaskList(TaskList):
     def __init__(self, **config):
         super().__init__(
-            theme_path="/usr/share/icons/Papirus-Dark",
+            theme_path="Papirus-Dark",
             icon_size=ICON_SIZE,
             border_width=4,
             highlight_method="block",
