@@ -279,7 +279,7 @@ class DQHDWorkflow:
         def find_closest():
             windows = _qtile.windows()
             windows = filter(lambda w: w["group"] != "MBP", windows)
-            windows = list(filter(lambda w: "sensible-terminal" in w["wm_class"], windows))
+            windows = list(filter(lambda w: "kitty" in w["wm_class"], windows))
             if not windows:
                 return None
             wid = min(windows, key=lambda w: rank(w))["id"]
