@@ -127,7 +127,7 @@ fake_screens.insert(SHARE_SCREEN_IDX, Screen(
 ))
 
 # Drag floating layouts.
-mouse: List[Mouse] = get_default_mouse(mod)
+mouse: List[Mouse] = get_default_mouse("control")
 dgroups_key_binder = None
 dgroups_app_rules = []  # type: list
 follow_mouse_focus = False
