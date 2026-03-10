@@ -1,5 +1,4 @@
-import json
-from typing import Dict, List, Literal, get_args
+from typing import Literal, get_args
 
 from libqtile import bar, hook, layout, log_utils, qtile
 from libqtile.backend.base import Window
@@ -74,7 +73,7 @@ class CustomStatusNotifier(StatusNotifier):
         logger.info("CustomStatusNotifier initialized")
 
 
-def _groups(prefix: str, screen_affinity: int) -> Dict[WorkspaceNumberKey, Group]:
+def _groups(prefix: str, screen_affinity: int) -> dict[WorkspaceNumberKey, Group]:
     return {
         i: Group(name=f"{prefix}{i}", screen_affinity=screen_affinity)
         for i in get_args(WorkspaceNumberKey)
@@ -93,9 +92,9 @@ class DQHDWorkflow:
         self.inactive_bar = inactive_bar
         self.warp = warp
         self.theme_mode = theme_mode
-        self.main_groups: Dict[WorkspaceNumberKey, Group] = _groups("M", MAIN_SCREEN_IDX)
-        self.left_groups: Dict[WorkspaceNumberKey, Group] = _groups("L", LEFT_SCREEN_IDX)
-        self.right_groups: Dict[WorkspaceNumberKey, Group] = _groups("R", RIGHT_SCREEN_IDX)
+        self.main_groups: dict[WorkspaceNumberKey, Group] = _groups("M", MAIN_SCREEN_IDX)
+        self.left_groups: dict[WorkspaceNumberKey, Group] = _groups("L", LEFT_SCREEN_IDX)
+        self.right_groups: dict[WorkspaceNumberKey, Group] = _groups("R", RIGHT_SCREEN_IDX)
         self.last_main_group = None
 
     def register_hooks(
@@ -104,15 +103,7 @@ class DQHDWorkflow:
 
         @hook.subscribe.client_name_updated
         async def on_client_name_updated(client):
-            current_window: Window = qtile.current_window
-            if current_window and current_window.floating:
-                # Don't change focus if the currently focused window is floating
-                return
-
-            current_windows = filter(lambda s: s.group.current_window, qtile.screens)
-            current_windows = list(map(lambda s: s.group.current_window.wid, current_windows))
-            if client.wid not in current_windows:
-                DQHDWorkflow.focus(client)
+            client.urgent = True
 
         @hook.subscribe.current_screen_change
         def on_screen_change_update_top_bar_background():
@@ -291,7 +282,7 @@ class DQHDWorkflow:
         else:
             _qtile.spawn("sensible-terminal")
 
-    def keys(self, mod="mod4") -> List[Key]:
+    def keys(self, mod="mod4") -> list[Key]:
         keys = []
 
         for number_key in get_args(WorkspaceNumberKey):
@@ -355,7 +346,7 @@ class DQHDWorkflow:
         return keys
 
     @staticmethod
-    def layouts() -> List[Layout]:
+    def layouts() -> list[Layout]:
         return [
             layout.Max(),
         ]
@@ -366,10 +357,10 @@ class DQHDWorkflow:
             return window_name[:50] + "…"
         return window_name
 
-    def fake_screens(self, extra_widgets: List[_Widget] = None) -> List[Screen]:
+    def fake_screens(self, extra_widgets: list[_Widget] = None) -> list[Screen]:
         # 5120x1440
         # 1280x1440+0+0, 2560x1440+1280+0, 1280x1440+3840+0
-        fake_screens: List[Screen] = []
+        fake_screens: list[Screen] = []
         fake_screens.insert(
             MAIN_SCREEN_IDX,
             Screen(
