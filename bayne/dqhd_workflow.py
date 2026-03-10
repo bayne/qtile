@@ -103,7 +103,8 @@ class DQHDWorkflow:
 
         @hook.subscribe.client_name_updated
         async def on_client_name_updated(client):
-            client.urgent = True
+            if not client.focused:
+                client.urgent = True
 
         @hook.subscribe.current_screen_change
         def on_screen_change_update_top_bar_background():
