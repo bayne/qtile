@@ -103,7 +103,7 @@ class DQHDWorkflow:
 
         @hook.subscribe.client_name_updated
         async def on_client_name_updated(client):
-            if not client.focused:
+            if not client.has_focus:
                 client.urgent = True
 
         @hook.subscribe.current_screen_change
