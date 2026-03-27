@@ -23,13 +23,15 @@ from libqtile.lazy import lazy
 from libqtile.widget.backlight import Backlight
 from libqtile.widget.battery import Battery
 from libqtile.widget.clock import Clock
-from libqtile.widget.graph import MemoryGraph, CPUGraph, NetGraph
 from libqtile.widget.groupbox import GroupBox
 from libqtile.widget.pulse_volume import PulseVolume
 from libqtile.widget.spacer import Spacer
 from libqtile.widget.systray import Systray
 from libqtile.widget.tasklist import TaskList
 from libqtile.widget.textbox import TextBox
+from bayne.widgets.disk_free import DiskFree
+from bayne.widgets.net_speed import NetSpeed
+from bayne.widgets.mem_avail import MemAvail
 
 BORDER_FOCUS="#CC1111"
 BORDER_NORMAL="#440000"
@@ -126,16 +128,9 @@ screens: List[Screen] = [
                 ),
                 Clock(format="%a %b %d %I:%M:%S %p"),
                 Spacer(),
-                TextBox(fmt="net",),
-                NetGraph(
-                    type='line',
-                ),
-                TextBox(fmt="cpu",),
-                CPUGraph(
-                    type='line',
-                ),
-                TextBox(fmt="mem",),
-                MemoryGraph(),
+                NetSpeed(),
+                MemAvail(),
+                DiskFree(),
                 Backlight(
                     background='#551',
                     fmt='☀️{}',
