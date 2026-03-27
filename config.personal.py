@@ -3,40 +3,33 @@ import re
 import subprocess
 from enum import Enum
 from re import Pattern
-from typing import List
 
-from pystemd.systemd1 import Unit
 from pystemd.dbuslib import DBus
+from pystemd.systemd1 import Unit
+
 from bayne import systemd_logging
-from bayne.default import get_default_floating
-from bayne.default import get_default_mouse
+from bayne.default import get_default_floating, get_default_mouse
 from bayne.dqhd_workflow import DQHDWorkflow
-from bayne.hooks import active_popup
-from bayne.hooks import disable_screensaver
-from bayne.hooks import popover
-from bayne.rofi import Rofi
-from bayne.rofi import RofiScript
-from libqtile import hook
-from libqtile import layout
-from libqtile import log_utils
-from libqtile import qtile
-from libqtile import widget
-from libqtile.config import Group
-from libqtile.config import Key
-from libqtile.config import Match
-from libqtile.config import Mouse
-from libqtile.config import Screen
+from bayne.hooks import active_popup, disable_screensaver, popover
+from bayne.rofi import Rofi, RofiScript
+from libqtile import hook, layout, log_utils, qtile, widget
+from libqtile.config import Group, Key, Match, Mouse, Screen
 from libqtile.layout.base import Layout
 from libqtile.lazy import lazy
 
-active_popup.init([
-    'opensnitch-ui',
-])
-popover.init(restack=[
-    'jetbrains-idea',
-])
+active_popup.init(
+    [
+        "opensnitch-ui",
+    ]
+)
+popover.init(
+    restack=[
+        "jetbrains-idea",
+    ]
+)
 systemd_logging.init()
 disable_screensaver.init()
+
 
 @hook.subscribe.startup_once
 def startup_once():
@@ -51,9 +44,10 @@ def startup_once():
     subprocess.Popen(["1password", "--silent"])
 
     with DBus(user_mode=True) as bus:
-        u = Unit('xephyr.service', bus=bus)
+        u = Unit("xephyr.service", bus=bus)
         u.load()
-        u.Unit.Start(b'replace')
+        u.Unit.Start(b"replace")
+
 
 class EnvGroup(str, Enum):
     MBP_GROUP = "MBP"
@@ -64,22 +58,19 @@ class EnvGroup(str, Enum):
     def __str__(self):
         return self.value
 
+
 ACTIVE_BAR = "#222222FF"
 INACTIVE_BAR = "#444444FF"
 MOD = "mod4"
 
-WORK_VM_WM_CLASS = 'remote-viewer'
+WORK_VM_WM_CLASS = "remote-viewer"
 
-WORK_VM_WIN_1_NAME = 'work (1)'
-WORK_VM_WIN_2_NAME = 'work (2)'
-WORK_MBP_WIN_NAME = 'work_mbp'
-WORK_XEPHYR_PATTERN: Pattern = re.compile(r'Xephyr.*')
+WORK_VM_WIN_1_NAME = "work (1)"
+WORK_VM_WIN_2_NAME = "work (2)"
+WORK_MBP_WIN_NAME = "work_mbp"
+WORK_XEPHYR_PATTERN: Pattern = re.compile(r"Xephyr.*")
 
-WORK_WINDOW_NAMES = [
-    WORK_VM_WIN_1_NAME,
-    WORK_VM_WIN_2_NAME,
-    WORK_MBP_WIN_NAME
-]
+WORK_WINDOW_NAMES = [WORK_VM_WIN_1_NAME, WORK_VM_WIN_2_NAME, WORK_MBP_WIN_NAME]
 
 logger = log_utils.logger
 
@@ -92,58 +83,76 @@ dqhd_workflow = DQHDWorkflow(
     active_bar=ACTIVE_BAR,
     inactive_bar=INACTIVE_BAR,
     warp=True,
-    theme_mode='preferred',
+    theme_mode="preferred",
 )
 dqhd_workflow.register_hooks()
+
 
 @hook.subscribe.client_new
 def on_client_new(client):
     logger.info(f"client new: {client.name}")
 
+
 @hook.subscribe.client_urgent_hint_changed
 def on_urgent_hint_change(client):
     logger.info(f"client urgent hint changed: {client.name}")
 
+
 @hook.subscribe.current_screen_change
 def on_screen_change_hide_work_group():
-    if qtile.current_screen != qtile.screens[WORK_SCREEN_IDX] or qtile.current_group.name != EnvGroup.W1_GROUP:
+    if (
+        qtile.current_screen != qtile.screens[WORK_SCREEN_IDX]
+        or qtile.current_group.name != EnvGroup.W1_GROUP
+    ):
         qtile.groups_map[EnvGroup.W1_GROUP].hide()
 
+
 env = os.environ.copy()
-env.update({'PATH': env['PATH'] + ':/home/bpayne/.bin'})
+env.update({"PATH": env["PATH"] + ":/home/bpayne/.bin"})
 rofi = Rofi(
     [
         RofiScript(
-            name="intellij",
-            path="/home/bpayne/Code/mine/dotfile/rofi-scripts/jetbrains.py"
+            name="intellij", path="/home/bpayne/Code/mine/dotfile/rofi-scripts/jetbrains.py"
         ),
         RofiScript(
-            name="bookmark",
-            path="/home/bpayne/Code/mine/dotfile/rofi-scripts/bookmarks.py"
-        )
+            name="bookmark", path="/home/bpayne/Code/mine/dotfile/rofi-scripts/bookmarks.py"
+        ),
     ]
 )
 
-groups: List[Group] = [
-    *dqhd_workflow.groups()
-]
+groups: list[Group] = [*dqhd_workflow.groups()]
 
 work_groups = [
-    Group(name=EnvGroup.W1_GROUP, screen_affinity=WORK_SCREEN_IDX, matches=[Match(title=WORK_VM_WIN_1_NAME, wm_class=WORK_VM_WM_CLASS), Match(title=WORK_XEPHYR_PATTERN)]),
-    Group(name=EnvGroup.W2_GROUP, screen_affinity=MAIN_SCREEN_IDX, matches=[Match(wm_class=WORK_VM_WM_CLASS)]),
-    Group(name=EnvGroup.MBP_GROUP, screen_affinity=MAIN_SCREEN_IDX, matches=[Match(title=WORK_MBP_WIN_NAME)]),
+    Group(
+        name=EnvGroup.W1_GROUP,
+        screen_affinity=WORK_SCREEN_IDX,
+        matches=[
+            Match(title=WORK_VM_WIN_1_NAME, wm_class=WORK_VM_WM_CLASS),
+            Match(title=WORK_XEPHYR_PATTERN),
+        ],
+    ),
+    Group(
+        name=EnvGroup.W2_GROUP,
+        screen_affinity=MAIN_SCREEN_IDX,
+        matches=[Match(wm_class=WORK_VM_WM_CLASS)],
+    ),
+    Group(
+        name=EnvGroup.MBP_GROUP,
+        screen_affinity=MAIN_SCREEN_IDX,
+        matches=[Match(title=WORK_MBP_WIN_NAME)],
+    ),
 ]
 groups.extend(work_groups)
+
 
 def get_keys(mod):
 
     def rebind_mod(new_mod):
-        dqhd_workflow.mod = new_mod
         qtile.ungrab_keys()
         for key in get_keys(new_mod):
             qtile.grab_key(key)
         logger.info(f"rebind mod to {mod}")
-    
+
     def focus_on_env(env_group: EnvGroup):
         def get_screen_and_key():
             match env_group:
@@ -156,7 +165,7 @@ def get_keys(mod):
                 case EnvGroup.PERSONAL:
                     return MAIN_SCREEN_IDX, "mod4"
 
-        def handler(_qtile) :
+        def handler(_qtile):
             screen_idx, mod_key = get_screen_and_key()
             if env_group != EnvGroup.PERSONAL:
                 _qtile.focus_screen(screen_idx)
@@ -170,57 +179,59 @@ def get_keys(mod):
     return [
         *dqhd_workflow.keys(mod),
         # mod1 is alt key
-        Key(["mod1", "shift"], "4", lazy.spawn('flameshot gui'), desc="screenshot"),
+        Key(["mod1", "shift"], "4", lazy.spawn("flameshot gui"), desc="screenshot"),
         Key([mod], "q", lazy.window.kill(), desc="Kill focused window"),
         Key([mod, "control"], "r", lazy.restart(), desc="Reload the config"),
         Key([mod, "control"], "q", lazy.shutdown(), desc="Shutdown Qtile"),
         Key([mod], "r", rofi.show()),
-
-        Key([], 'Help',
-            focus_on_env(EnvGroup.PERSONAL),
-            desc="focus on personal"
-            ),
-
-        Key([], 'XF86Search',
-            focus_on_env(EnvGroup.MBP_GROUP),
-            desc="focus on mbp"
-            ),
-        Key(['mod1', "control"], "9",
-            focus_on_env(EnvGroup.W1_GROUP),
-            desc="W1"
-            ),
-        Key(['mod1', "control"], "0",
+        Key([], "Help", focus_on_env(EnvGroup.PERSONAL), desc="focus on personal"),
+        Key([], "XF86Search", focus_on_env(EnvGroup.MBP_GROUP), desc="focus on mbp"),
+        Key(["mod1", "control"], "9", focus_on_env(EnvGroup.W1_GROUP), desc="W1"),
+        Key(
+            ["mod1", "control"],
+            "0",
             focus_on_env(EnvGroup.W2_GROUP),
             desc="W2",
-            ),
-        Key([mod, 'control'], 'l',
-            lazy.spawn('lock', shell=True),
-            desc='Lock screen',
-            ),
+        ),
+        Key(
+            [mod, "control"],
+            "l",
+            lazy.spawn("lock", shell=True),
+            desc="Lock screen",
+        ),
     ]
+
 
 # https://github.com/qtile/qtile/blob/master/libqtile/backend/x11/xkeysyms.py
 keys = get_keys(MOD)
 
-layouts: List[Layout] = dqhd_workflow.layouts()
+layouts: list[Layout] = dqhd_workflow.layouts()
 
 # 5120 x 1440
 # 1280x1440,2560x1440,1280x1440
 # 1280x1440+0+0,2560x1440+1280+0,1280x1440+3840+0
-fake_screens: List[Screen] = dqhd_workflow.fake_screens(extra_widgets=[
-    widget.Spacer(),
-    widget.GroupBox(
-        visible_groups=[g.name for g in work_groups],
-        active="#B283D4FF",
+fake_screens: list[Screen] = dqhd_workflow.fake_screens(
+    extra_widgets=[
+        widget.Spacer(),
+        widget.GroupBox(
+            visible_groups=[g.name for g in work_groups],
+            active="#B283D4FF",
+        ),
+    ]
+)
+fake_screens.insert(
+    WORK_SCREEN_IDX,
+    Screen(
+        background="#00000000",
+        x=0,
+        y=0,
+        width=5120,
+        height=1440,
     ),
-])
-fake_screens.insert(WORK_SCREEN_IDX, Screen(
-    background="#00000000",
-    x=0, y=0, width=5120, height=1440,
-))
+)
 
 # Drag floating layouts.
-mouse: List[Mouse] = get_default_mouse(MOD)
+mouse: list[Mouse] = get_default_mouse(MOD)
 dgroups_key_binder = None
 dgroups_app_rules = []  # type: list
 follow_mouse_focus = False
@@ -228,10 +239,10 @@ bring_front_click: bool = False
 floats_kept_above: bool = True
 cursor_warp: bool = True
 floating_layout: layout.Floating = layout.Floating(
-   float_rules=[
-       *layout.Floating.default_float_rules,
-       *get_default_floating(),
-   ]
+    float_rules=[
+        *layout.Floating.default_float_rules,
+        *get_default_floating(),
+    ]
 )
 auto_fullscreen: bool = True
 focus_on_window_activation = "smart"

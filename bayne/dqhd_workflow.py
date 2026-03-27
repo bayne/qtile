@@ -1,14 +1,16 @@
 from typing import Literal, get_args
 
+from bayne.widgets.disk_free import DiskFree
+from bayne.widgets.mem_avail import MemAvail
+from bayne.widgets.net_speed import NetSpeed
 from libqtile import bar, hook, layout, log_utils, qtile
-from libqtile.backend.base import Window
 from libqtile.config import Group, Key, Screen
 from libqtile.group import _Group
 from libqtile.layout.base import Layout
 from libqtile.lazy import LazyCall, lazy
 from libqtile.widget.base import _Widget
 from libqtile.widget.clock import Clock
-from libqtile.widget.graph import CPUGraph, MemoryGraph, NetGraph
+from libqtile.widget.graph import CPUGraph, HDDBusyGraph, MemoryGraph, NetGraph
 from libqtile.widget.groupbox import GroupBox
 from libqtile.widget.spacer import Spacer
 from libqtile.widget.statusnotifier import StatusNotifier
@@ -375,33 +377,6 @@ class DQHDWorkflow:
                         ),
                         Clock(format="%a %b %d %I:%M:%S %p"),
                         *extra_widgets,
-                        TextBox(
-                            fmt="net",
-                        ),
-                        NetGraph(
-                            type="line",
-                            margin_x=0,
-                            margin_y=0,
-                            border_width=0,
-                        ),
-                        TextBox(
-                            fmt="cpu",
-                        ),
-                        CPUGraph(
-                            type="line",
-                            margin_x=0,
-                            margin_y=0,
-                            border_width=0,
-                        ),
-                        TextBox(
-                            fmt="mem",
-                        ),
-                        MemoryGraph(
-                            type="line",
-                            margin_x=0,
-                            margin_y=0,
-                            border_width=0,
-                        ),
                         Systray(
                             icon_size=ICON_SIZE,
                             padding=4,
@@ -443,6 +418,36 @@ class DQHDWorkflow:
                     widgets=[
                         GroupBox(visible_groups=[g.name for g in self.right_groups.values()]),
                         CustomTaskList(theme_mode=self.theme_mode),
+                        NetSpeed(),
+                        NetGraph(
+                            type="line",
+                            margin_x=0,
+                            margin_y=0,
+                            border_width=0,
+                        ),
+                        TextBox(
+                            fmt="cpu",
+                        ),
+                        CPUGraph(
+                            type="line",
+                            margin_x=0,
+                            margin_y=0,
+                            border_width=0,
+                        ),
+                        MemAvail(),
+                        MemoryGraph(
+                            type="line",
+                            margin_x=0,
+                            margin_y=0,
+                            border_width=0,
+                        ),
+                        DiskFree(format="hdd {free:.0f}GB"),
+                        HDDBusyGraph(
+                            type="line",
+                            margin_x=0,
+                            margin_y=0,
+                            border_width=0,
+                        ),
                     ],
                     size=BAR_SIZE,
                     background=self.active_bar,
