@@ -1,29 +1,24 @@
-import sys
+import os
 from datetime import datetime, timedelta
 
-from libqtile.widget.base import BackgroundPoll
+import icalendar
+import pytz
+import recurring_ical_events
+import requests
+
 from libqtile.log_utils import logger
+from libqtile.widget.base import BackgroundPoll
 
-import subprocess, requests, pytz
-
-
-def _get_password(entry):
-    result = subprocess.run(["pass", entry], capture_output=True, text=True, check=True)
-    return result.stdout.strip()
 
 class OutlookChecker(BackgroundPoll):
-    SHOW_AS_RANK = {
-        "busy": 0,
-        "tentative": 1,
-    }
-
     defaults = [
         ("update_interval", 1, "Update time in seconds."),
         ("request_update_interval", 600, "Request update time in seconds."),
-        ("timezone", pytz.timezone('America/Los_Angeles'), "Timezone"),
+        ("timezone", pytz.timezone("America/Los_Angeles"), "Timezone"),
         ("foreground", "33ff33", "foreground color"),
         ("foreground_active", "ff8888", "foreground color when meeting is active"),
         ("foreground_not_today", "8CFFF0", "foreground color when meeting is not today"),
+        ("lookahead", 7, "days to look ahead in the calendar"),
     ]
 
     def __init__(self, **config):
@@ -32,49 +27,63 @@ class OutlookChecker(BackgroundPoll):
         self.markup = False
         self.foreground_inactive = self.foreground
         self.last_update = datetime.now(self.timezone)
-        self.previous_response = None
+        self.cached_calendar = None
         self.force_update()
 
-    def _config_async(self):
-        self.url = _get_password("outlook-event-url")
-
-    def _show_as_rank(self, show_as: str) -> int:
-        if show_as not in self.SHOW_AS_RANK:
-            return sys.maxsize
-        return self.SHOW_AS_RANK[show_as]
-
-    def _get_datetime(self, date_string: str):
-        return pytz.utc.localize(datetime.fromisoformat(date_string)).astimezone(self.timezone)
+    def _normalize_dt(self, dt) -> datetime:
+        """Convert a date or datetime to a timezone-aware datetime."""
+        if isinstance(dt, datetime):
+            if dt.tzinfo is None:
+                return self.timezone.localize(dt)
+            return dt.astimezone(self.timezone)
+        # date (all-day event) — treat as start of day
+        return self.timezone.localize(datetime.combine(dt, datetime.min.time()))
 
     def _poll(self):
         now: datetime = datetime.now(self.timezone)
 
-        if not self.previous_response or self.last_update + timedelta(seconds=self.request_update_interval) < now:
-            response = requests.get(self.url)
-            self.previous_response = response
+        if (
+            self.cached_calendar is None
+            or self.last_update + timedelta(seconds=self.request_update_interval) < now
+        ):
+            response = requests.get(os.environ["OUTLOOK_ICS_URL"])
+            self.cached_calendar = icalendar.Calendar.from_ical(response.text)
             self.last_update = now
-        else:
-            response = self.previous_response
 
-        events = response.json()['value']
-        events = filter(lambda e: e['isReminderOn'] or e['showAs'] == 'busy', events)
-        events = filter(lambda e: 'subject' not in e or not e['subject'].startswith('Canceled:'), events)
-        events = sorted(events, key=lambda e: self._show_as_rank(e['showAs']))
-        events = filter(lambda e: self._get_datetime(e['start']) > now or now <= self._get_datetime(e['end']), events)
-        next_event = min(events, default={}, key=lambda e: e['start'])
-        if not next_event:
+        window_end = now + timedelta(days=self.lookahead)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        events = recurring_ical_events.of(self.cached_calendar).between(today_start, window_end)
+
+        # Exclude canceled events
+        events = [
+            e
+            for e in events
+            if not str(e.get("SUMMARY", "")).startswith("Canceled:")
+        ]
+
+        # Filter: event hasn't ended yet
+        events = [
+            e
+            for e in events
+            if self._normalize_dt(e["DTEND"].dt) > now
+        ]
+
+        if not events:
             return "No next event"
 
-        subject, start, end = next_event.get('subject', 'unknown'), next_event['start'], next_event['end']
-        start: datetime = self._get_datetime(start)
-        end: datetime = self._get_datetime(end)
+        # Find next event by start time
+        next_event = min(events, key=lambda e: self._normalize_dt(e["DTSTART"].dt))
+
+        subject = str(next_event.get("SUMMARY", "unknown"))
+        start = self._normalize_dt(next_event["DTSTART"].dt)
+        event_end = self._normalize_dt(next_event["DTEND"].dt)
         day = datetime.strftime(start, "%a")
         start_time = datetime.strftime(start, "%-I:%M %p")
-        end_time = datetime.strftime(end, "%-I:%M %p")
+        end_time = datetime.strftime(event_end, "%-I:%M %p")
 
-        if now.day < start.day:
+        if now.date() < start.date():
             self.foreground = self.foreground_not_today
-        elif start <= now <= end:
+        elif start <= now <= event_end:
             self.foreground = self.foreground_active
         else:
             self.foreground = self.foreground_inactive
@@ -84,7 +93,7 @@ class OutlookChecker(BackgroundPoll):
     async def apoll(self):
         try:
             return self._poll()
-        except Exception as e:
+        except Exception:
             logger.exception("Failed to poll for outlook events")
-            return f"Error something went wrong"
+            return "Error something went wrong"
 
