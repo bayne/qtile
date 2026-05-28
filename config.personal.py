@@ -117,6 +117,7 @@ rofi = Rofi(
         RofiScript(
             name="bookmark", path="/home/bpayne/Code/mine/dotfile/rofi-scripts/bookmarks.py"
         ),
+        RofiScript(name="tmxb", path="/usr/bin/tmxb-rofi"),
     ]
 )
 
