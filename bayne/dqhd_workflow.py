@@ -234,7 +234,12 @@ class DQHDWorkflow:
         group.focus(window)
 
     @staticmethod
-    def _open_terminal(_qtile):
+    def _rank_closest(_qtile, predicate):
+        """Return the window dict closest to the current group, or None.
+
+        Ranks candidates by (active_distance, screen_distance, group_distance).
+        `predicate` is called with each window dict from `_qtile.windows()`.
+        """
         current_group = _qtile.current_group
         current_windows = filter(lambda s: s.group.current_window, _qtile.screens)
         current_windows = list(map(lambda s: s.group.current_window.wid, current_windows))
@@ -249,7 +254,7 @@ class DQHDWorkflow:
 
         def screen_distance(w):
             group = DQHDWorkflow.components(w["group"])
-            cg, cn = DQHDWorkflow.components(current_group.name)
+            cg, _cn = DQHDWorkflow.components(current_group.name)
 
             match group:
                 case g, _ if g == cg:
@@ -264,26 +269,67 @@ class DQHDWorkflow:
                     return 4
 
         def rank(w):
-            return (
-                active_distance(w),
-                screen_distance(w),
-                group_distance(w),
-            )
+            return (active_distance(w), screen_distance(w), group_distance(w))
 
-        def find_closest():
-            windows = _qtile.windows()
-            windows = filter(lambda w: w["group"] != "MBP", windows)
-            windows = list(filter(lambda w: "kitty" in w["wm_class"], windows))
-            if not windows:
-                return None
-            wid = min(windows, key=lambda w: rank(w))["id"]
-            return _qtile.windows_map.get(wid)
+        windows = list(filter(predicate, _qtile.windows()))
+        if not windows:
+            return None
+        return min(windows, key=rank)
 
-        closest = find_closest()
-        if closest:
-            DQHDWorkflow.focus(closest, warp=True)
-        else:
-            _qtile.spawn("sensible-terminal")
+    @staticmethod
+    def _open_terminal(_qtile):
+        def is_kitty(w):
+            return w["group"] != "MBP" and "kitty" in w["wm_class"]
+
+        match = DQHDWorkflow._rank_closest(_qtile, is_kitty)
+        if match is not None:
+            window = _qtile.windows_map.get(match["id"])
+            if window is not None:
+                DQHDWorkflow.focus(window, warp=True)
+                return
+        _qtile.spawn("sensible-terminal")
+
+    @staticmethod
+    def focus_for_tmux(x_wid=None):
+        """Focus a kitty window for a tmxb notification.
+
+        Called via `qtile cmd-obj -o cmd -f eval` from tmxb. Returns True if a
+        window was focused, False otherwise (caller can spawn a new terminal).
+
+          1. If `x_wid` is set and matches a live window → focus it directly.
+          2. Otherwise rank all kitty windows by closest-terminal heuristic.
+
+        tmxb is responsible for resolving the originating tmux client to an X
+        window id (via `xdotool search --pid`) before calling — qtile's window
+        info dict does not expose pids.
+        """
+        from libqtile import qtile as _qtile
+
+        if _qtile is None:
+            return False
+
+        windows_map = _qtile.windows_map
+
+        if x_wid is not None:
+            try:
+                wid = int(x_wid)
+            except (TypeError, ValueError):
+                wid = None
+            if wid is not None and wid in windows_map:
+                DQHDWorkflow.focus(windows_map[wid], warp=True)
+                return True
+
+        def is_kitty(w):
+            return w["group"] != "MBP" and "kitty" in w["wm_class"]
+
+        match = DQHDWorkflow._rank_closest(_qtile, is_kitty)
+        if match is None:
+            return False
+        window = windows_map.get(match["id"])
+        if window is None:
+            return False
+        DQHDWorkflow.focus(window, warp=True)
+        return True
 
     def keys(self, mod="mod4") -> list[Key]:
         keys = []
