@@ -156,6 +156,15 @@ line-ending = "auto"
 known-first-party = ["libqtile", "test"]
 default-section = "third-party"
 
+[tool.pyright]
+# Point the editor's Pyright language server at the project venv (where
+# pystemd et al. are installed) and at the local stub directory. Without this
+# Pyright uses a global interpreter and reports phantom "could not be resolved"
+# errors. Project type-checking itself is done by mypy (see below).
+venvPath = "."
+venv = ".venv"
+stubPath = "stubs"
+
 [tool.mypy]
 mypy_path = "stubs"
 python_version = "3.13"

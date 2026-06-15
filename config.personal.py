@@ -1,19 +1,31 @@
 import os
 import re
 import subprocess
-from enum import Enum
 from re import Pattern
 
 from pystemd.dbuslib import DBus
 from pystemd.systemd1 import Unit
 
 from bayne import systemd_logging
-from bayne.default import get_default_floating, get_default_mouse
+from bayne.default import get_default_floating
+from bayne.default import get_default_mouse
 from bayne.dqhd_workflow import DQHDWorkflow
-from bayne.hooks import active_popup, disable_screensaver, popover
-from bayne.rofi import Rofi, RofiScript
-from libqtile import hook, layout, log_utils, qtile, widget
-from libqtile.config import Group, Key, Match, Mouse, Screen
+from bayne.dqhd_workflow import EnvGroup
+from bayne.hooks import active_popup
+from bayne.hooks import disable_screensaver
+from bayne.hooks import popover
+from bayne.rofi import Rofi
+from bayne.rofi import RofiScript
+from libqtile import hook
+from libqtile import layout
+from libqtile import log_utils
+from libqtile import qtile
+from libqtile import widget
+from libqtile.config import Group
+from libqtile.config import Key
+from libqtile.config import Match
+from libqtile.config import Mouse
+from libqtile.config import Screen
 from libqtile.layout.base import Layout
 from libqtile.lazy import lazy
 
@@ -49,15 +61,6 @@ def startup_once():
         u.Unit.Start(b"replace")
 
 
-class EnvGroup(str, Enum):
-    MBP_GROUP = "MBP"
-    W1_GROUP = "W1"
-    W2_GROUP = "W2"
-    PERSONAL = "M1"
-
-    def __str__(self):
-        return self.value
-
 
 ACTIVE_BAR = "#222222FF"
 INACTIVE_BAR = "#444444FF"
@@ -68,7 +71,7 @@ WORK_VM_WM_CLASS = "remote-viewer"
 WORK_VM_WIN_1_NAME = "work (1)"
 WORK_VM_WIN_2_NAME = "work (2)"
 WORK_MBP_WIN_NAME = "work_mbp"
-WORK_XEPHYR_PATTERN: Pattern = re.compile(r"Xephyr.*")
+WORK_XEPHYR1_PATTERN: Pattern = re.compile(r"^Xephyr on :1.0")
 
 WORK_WINDOW_NAMES = [WORK_VM_WIN_1_NAME, WORK_VM_WIN_2_NAME, WORK_MBP_WIN_NAME]
 
@@ -128,7 +131,7 @@ work_groups = [
         screen_affinity=WORK_SCREEN_IDX,
         matches=[
             Match(title=WORK_VM_WIN_1_NAME, wm_class=WORK_VM_WM_CLASS),
-            Match(title=WORK_XEPHYR_PATTERN),
+            Match(title=WORK_XEPHYR1_PATTERN),
         ],
     ),
     Group(
@@ -200,7 +203,6 @@ def get_keys(mod):
             desc="Lock screen",
         ),
     ]
-
 
 # https://github.com/qtile/qtile/blob/master/libqtile/backend/x11/xkeysyms.py
 keys = get_keys(MOD)

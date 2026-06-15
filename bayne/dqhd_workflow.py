@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Literal, get_args
 
 from bayne.widgets.disk_free import DiskFree
@@ -8,7 +9,7 @@ from libqtile.config import Group, Key, Screen
 from libqtile.group import _Group
 from libqtile.layout.base import Layout
 from libqtile.lazy import LazyCall, lazy
-from libqtile.widget.base import _Widget
+from libqtile.widget.base import _Widget, MarginMixin
 from libqtile.widget.clock import Clock
 from libqtile.widget.graph import CPUGraph, HDDBusyGraph, MemoryGraph, NetGraph
 from libqtile.widget.groupbox import GroupBox
@@ -369,6 +370,7 @@ class DQHDWorkflow:
             Screen(
                 background=BACKGROUND_COLOR,
                 top=bar.Bar(
+                    margin=[4, 2, 4, 2],
                     widgets=[
                         GroupBox(visible_groups=[g.name for g in self.main_groups.values()]),
                         CustomTaskList(
@@ -386,6 +388,9 @@ class DQHDWorkflow:
                     size=BAR_SIZE,
                     background=self.active_bar,
                 ),
+                left=bar.Gap(2),
+                right=bar.Gap(2),
+                bottom=bar.Gap(4),
                 x=1280,
                 y=0,
                 width=2560,
@@ -397,6 +402,7 @@ class DQHDWorkflow:
             Screen(
                 background=BACKGROUND_COLOR,
                 top=bar.Bar(
+                    margin=[4, 2, 4, 4],
                     widgets=[
                         GroupBox(visible_groups=[g.name for g in self.left_groups.values()]),
                         CustomTaskList(theme_mode=self.theme_mode),
@@ -404,6 +410,9 @@ class DQHDWorkflow:
                     size=BAR_SIZE,
                     background=self.active_bar,
                 ),
+                left=bar.Gap(4),
+                right=bar.Gap(2),
+                bottom=bar.Gap(4),
                 x=0,
                 y=0,
                 width=1280,
@@ -415,6 +424,7 @@ class DQHDWorkflow:
             Screen(
                 background=BACKGROUND_COLOR,
                 top=bar.Bar(
+                    margin=[4, 4, 4, 2],
                     widgets=[
                         GroupBox(visible_groups=[g.name for g in self.right_groups.values()]),
                         CustomTaskList(theme_mode=self.theme_mode),
@@ -452,6 +462,9 @@ class DQHDWorkflow:
                     size=BAR_SIZE,
                     background=self.active_bar,
                 ),
+                left=bar.Gap(2),
+                right=bar.Gap(4),
+                bottom=bar.Gap(4),
                 x=3840,
                 y=0,
                 width=1280,
@@ -459,3 +472,15 @@ class DQHDWorkflow:
             ),
         )
         return fake_screens
+
+class EnvGroup(str, Enum):
+    MBP_GROUP = "MBP"
+    W1_GROUP = "W1"
+    W2_GROUP = "W2"
+    PERSONAL = "M1"
+
+    def __str__(self):
+        return self.value
+
+    def __reduce__(self):
+        return self.__class__, (self.value,)
