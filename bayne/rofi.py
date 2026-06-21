@@ -15,12 +15,13 @@ class RofiScript:
         self.path = path
 
 class Rofi:
-    def __init__(self, rofi_scripts: List[RofiScript]):
+    def __init__(self, rofi_scripts: List[RofiScript | str]):
         combi_modi = [
-            'window',
-            *map(lambda rofi_script: f"{rofi_script.name}:{rofi_script.path}", rofi_scripts),
-            'drun',
-            'run'
+            f"{rofi_script.name}:{rofi_script.path}" if isinstance(rofi_script, RofiScript) else rofi_script
+            for rofi_script in rofi_scripts
+            # 'window',
+            # 'drun',
+            # 'run'
         ]
         self.cmd = [
             'rofi', '-show', 'combi',

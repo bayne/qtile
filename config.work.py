@@ -62,14 +62,16 @@ SHARE_SCREEN_IDX = 3
 
 rofi = Rofi(
     [
+        # RofiScript(name="tmxb", path="/usr/bin/tmxb-rofi"),
+        'window',
         RofiScript(
-            name="intellij",
-            path="/home/bpayne/Code/mine/dotfile/rofi-scripts/jetbrains.py"
+            name="bookmark", path="/home/bpayne/Code/mine/dotfile/rofi-scripts/bookmarks.py"
         ),
+        'drun',
+        'run',
         RofiScript(
-            name="bookmark",
-            path="/home/bpayne/Code/mine/dotfile/rofi-scripts/bookmarks.py"
-        )
+            name="intellij", path="/home/bpayne/Code/mine/dotfile/rofi-scripts/jetbrains.py"
+        ),
     ]
 )
 
