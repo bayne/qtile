@@ -1,7 +1,9 @@
 from enum import Enum
 from typing import Literal, get_args
 
+from bayne.widgets.cpu_bars import CPUBars
 from bayne.widgets.disk_free import DiskFree
+from bayne.widgets.hdd_activity import HDDActivity
 from bayne.widgets.mem_avail import MemAvail
 from bayne.widgets.net_speed import NetSpeed
 from libqtile import bar, hook, layout, log_utils, qtile
@@ -11,7 +13,7 @@ from libqtile.layout.base import Layout
 from libqtile.lazy import LazyCall, lazy
 from libqtile.widget.base import _Widget, MarginMixin
 from libqtile.widget.clock import Clock
-from libqtile.widget.graph import CPUGraph, HDDBusyGraph, MemoryGraph, NetGraph
+from libqtile.widget.graph import MemoryGraph, NetGraph
 from libqtile.widget.groupbox import GroupBox
 from libqtile.widget.spacer import Spacer
 from libqtile.widget.statusnotifier import StatusNotifier
@@ -476,7 +478,7 @@ class DQHDWorkflow:
                         CustomTaskList(theme_mode=self.theme_mode),
                         NetSpeed(),
                         NetGraph(
-                            type="line",
+                            type="box",
                             margin_x=0,
                             margin_y=0,
                             border_width=0,
@@ -484,25 +486,21 @@ class DQHDWorkflow:
                         TextBox(
                             fmt="cpu",
                         ),
-                        CPUGraph(
-                            type="line",
-                            margin_x=0,
-                            margin_y=0,
-                            border_width=0,
+                        CPUBars(
+                            margin_x=2,
+                            margin_y=4,
                         ),
                         MemAvail(),
                         MemoryGraph(
-                            type="line",
+                            type="box",
                             margin_x=0,
                             margin_y=0,
                             border_width=0,
                         ),
                         DiskFree(format="hdd {free:.0f}GB"),
-                        HDDBusyGraph(
-                            type="line",
-                            margin_x=0,
-                            margin_y=0,
-                            border_width=0,
+                        HDDActivity(
+                            margin_x=2,
+                            margin_y=4,
                         ),
                     ],
                     size=BAR_SIZE,
