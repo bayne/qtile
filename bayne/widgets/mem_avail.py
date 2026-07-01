@@ -1,10 +1,17 @@
+import time
+
 import psutil
 
 from libqtile.widget import base
 
+ANIM_INTERVAL = 0.05
+
 
 class MemAvail(base.InLoopPollText):
-    """Display available memory in GB, turning red when low."""
+    """Display available memory in GB, turning red when low.
+
+    Interpolates between samples at ~20fps for smooth animation.
+    """
 
     defaults = [
         ("warn_threshold_gb", 8, "Turn red below this many GB available."),
@@ -16,14 +23,30 @@ class MemAvail(base.InLoopPollText):
         base.InLoopPollText.__init__(self, "", **config)
         self.add_defaults(MemAvail.defaults)
         self._normal_fg = self.foreground
+        self._prev_gb = 0.0
+        self._target_gb = 0.0
+        self._sample_time = time.monotonic()
+
+    def timer_setup(self):
+        super().timer_setup()
+        self.timeout_add(ANIM_INTERVAL, self._animate)
 
     def poll(self):
         mem = psutil.virtual_memory()
-        avail_gb = mem.available / (1024 ** 3)
+        self._prev_gb = self._target_gb
+        self._target_gb = mem.available / (1024 ** 3)
+        self._sample_time = time.monotonic()
+        return self._format(self._target_gb)
 
+    def _format(self, avail_gb):
         if avail_gb < self.warn_threshold_gb:
             self.foreground = self.warn_color
         else:
             self.foreground = self._normal_fg
-
         return f"mem {avail_gb:.1f}GB"
+
+    def _animate(self):
+        t = min(1.0, (time.monotonic() - self._sample_time) / self.update_interval)
+        display_gb = self._prev_gb + (self._target_gb - self._prev_gb) * t
+        self.update(self._format(display_gb))
+        self.timeout_add(ANIM_INTERVAL, self._animate)

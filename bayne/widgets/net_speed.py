@@ -1,10 +1,17 @@
+import time
+
 import psutil
 
 from libqtile.widget import base
 
+ANIM_INTERVAL = 0.05
+
 
 class NetSpeed(base.InLoopPollText):
-    """Display network speed in KB/s or MB/s, turning red when high."""
+    """Display network speed in KB/s or MB/s, turning red when high.
+
+    Interpolates between samples at ~20fps for smooth animation.
+    """
 
     defaults = [
         ("warn_threshold_mb", 10, "Turn red above this many MB/s total."),
@@ -17,7 +24,16 @@ class NetSpeed(base.InLoopPollText):
         base.InLoopPollText.__init__(self, "", **config)
         self.add_defaults(NetSpeed.defaults)
         self._normal_fg = self.foreground
-        self._prev = psutil.net_io_counters(pernic=False)
+        self._io_prev = psutil.net_io_counters(pernic=False)
+        self._prev_down = 0.0
+        self._prev_up = 0.0
+        self._target_down = 0.0
+        self._target_up = 0.0
+        self._sample_time = time.monotonic()
+
+    def timer_setup(self):
+        super().timer_setup()
+        self.timeout_add(ANIM_INTERVAL, self._animate)
 
     @staticmethod
     def _fmt_speed(bytes_per_sec):
@@ -28,14 +44,29 @@ class NetSpeed(base.InLoopPollText):
 
     def poll(self):
         cur = psutil.net_io_counters(pernic=False)
-        down = (cur.bytes_recv - self._prev.bytes_recv) / self.update_interval
-        up = (cur.bytes_sent - self._prev.bytes_sent) / self.update_interval
-        self._prev = cur
+        down = (cur.bytes_recv - self._io_prev.bytes_recv) / self.update_interval
+        up = (cur.bytes_sent - self._io_prev.bytes_sent) / self.update_interval
+        self._io_prev = cur
 
+        self._prev_down = self._target_down
+        self._prev_up = self._target_up
+        self._target_down = down
+        self._target_up = up
+        self._sample_time = time.monotonic()
+
+        return self._format(down, up)
+
+    def _format(self, down, up):
         total_mb = (down + up) / (1024 * 1024)
         if total_mb > self.warn_threshold_mb:
             self.foreground = self.warn_color
         else:
             self.foreground = self._normal_fg
-
         return f"net ↓{self._fmt_speed(down)} ↑{self._fmt_speed(up)}"
+
+    def _animate(self):
+        t = min(1.0, (time.monotonic() - self._sample_time) / self.update_interval)
+        display_down = self._prev_down + (self._target_down - self._prev_down) * t
+        display_up = self._prev_up + (self._target_up - self._prev_up) * t
+        self.update(self._format(display_down, display_up))
+        self.timeout_add(ANIM_INTERVAL, self._animate)

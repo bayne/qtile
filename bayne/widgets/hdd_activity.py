@@ -1,7 +1,11 @@
+import time
+
 import cairocffi
 import psutil
 
 from libqtile.widget import base
+
+ANIM_INTERVAL = 0.05
 
 
 class HDDActivity(base._Widget, base.MarginMixin):
@@ -9,6 +13,7 @@ class HDDActivity(base._Widget, base.MarginMixin):
 
     Two stacked horizontal bars (read on top, write on bottom).
     Colors: green (<60%), yellow (60-80%), red (>80%) of max_rate.
+    Interpolates between samples at ~20fps for smooth animation.
     """
 
     orientations = base.ORIENTATION_HORIZONTAL
@@ -26,29 +31,40 @@ class HDDActivity(base._Widget, base.MarginMixin):
         base._Widget.__init__(self, width, **config)
         self.add_defaults(HDDActivity.defaults)
         self.add_defaults(base.MarginMixin.defaults)
-        self._prev = psutil.disk_io_counters()
-        self._read_pct = 0.0
-        self._write_pct = 0.0
+        self._io_prev = psutil.disk_io_counters()
+        self._prev = [0.0, 0.0]
+        self._target = [0.0, 0.0]
+        self._display = [0.0, 0.0]
+        self._sample_time = time.monotonic()
 
     def _configure(self, qtile, bar):
         super()._configure(qtile, bar)
         self.drawer.ctx.set_antialias(cairocffi.ANTIALIAS_NONE)
 
     def timer_setup(self):
-        self.timeout_add(self.frequency, self._update)
+        self.timeout_add(self.frequency, self._sample)
+        self.timeout_add(ANIM_INTERVAL, self._animate)
 
-    def _update(self):
+    def _sample(self):
         cur = psutil.disk_io_counters()
-        read_bytes = (cur.read_bytes - self._prev.read_bytes) / self.frequency
-        write_bytes = (cur.write_bytes - self._prev.write_bytes) / self.frequency
-        self._prev = cur
+        read_bytes = (cur.read_bytes - self._io_prev.read_bytes) / self.frequency
+        write_bytes = (cur.write_bytes - self._io_prev.write_bytes) / self.frequency
+        self._io_prev = cur
 
         max_bytes = self.max_rate_mb * 1024 * 1024
-        self._read_pct = min(100.0, read_bytes / max_bytes * 100.0)
-        self._write_pct = min(100.0, write_bytes / max_bytes * 100.0)
+        self._prev = list(self._display)
+        self._target = [
+            min(100.0, read_bytes / max_bytes * 100.0),
+            min(100.0, write_bytes / max_bytes * 100.0),
+        ]
+        self._sample_time = time.monotonic()
+        self.timeout_add(self.frequency, self._sample)
 
+    def _animate(self):
+        t = min(1.0, (time.monotonic() - self._sample_time) / self.frequency)
+        self._display = [p + (c - p) * t for p, c in zip(self._prev, self._target)]
         self.draw()
-        self.timeout_add(self.frequency, self._update)
+        self.timeout_add(ANIM_INTERVAL, self._animate)
 
     def _color_for_pct(self, pct):
         if pct >= self.threshold_high:
@@ -65,7 +81,7 @@ class HDDActivity(base._Widget, base.MarginMixin):
         bar_height = max(1, (available_height - 2) // 2)
         x = self.margin_x
 
-        for i, pct in enumerate([self._read_pct, self._write_pct]):
+        for i, pct in enumerate(self._display):
             y = self.margin_y + i * (bar_height + 2)
             bar_w = max(1, int(available_width * pct / 100.0))
 

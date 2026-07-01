@@ -1,13 +1,18 @@
+import time
+
 import cairocffi
 import psutil
 
 from libqtile.widget import base
+
+ANIM_INTERVAL = 0.05
 
 
 class CPUBars(base._Widget, base.MarginMixin):
     """Display per-core CPU usage as vertical bars with color thresholds.
 
     Each core gets a vertical bar. Colors: green (<60%), yellow (60-80%), red (>80%).
+    Interpolates between samples at ~20fps for smooth animation.
     """
 
     orientations = base.ORIENTATION_HORIZONTAL
@@ -30,7 +35,10 @@ class CPUBars(base._Widget, base.MarginMixin):
         base._Widget.__init__(self, width, **config)
         self.add_defaults(CPUBars.defaults)
         self.add_defaults(base.MarginMixin.defaults)
-        self._percentages = [0.0] * self._core_count
+        self._prev = [0.0] * self._core_count
+        self._target = [0.0] * self._core_count
+        self._display = [0.0] * self._core_count
+        self._sample_time = time.monotonic()
 
     def _configure(self, qtile, bar):
         super()._configure(qtile, bar)
@@ -44,12 +52,22 @@ class CPUBars(base._Widget, base.MarginMixin):
         )
 
     def timer_setup(self):
-        self.timeout_add(self.frequency, self._update)
+        self.timeout_add(self.frequency, self._sample)
+        self.timeout_add(ANIM_INTERVAL, self._animate)
 
-    def _update(self):
-        self._percentages = psutil.cpu_percent(percpu=True)
+    def _sample(self):
+        self._prev = list(self._display)
+        self._target = psutil.cpu_percent(percpu=True)
+        self._sample_time = time.monotonic()
+        self.timeout_add(self.frequency, self._sample)
+
+    def _animate(self):
+        t = min(1.0, (time.monotonic() - self._sample_time) / self.frequency)
+        self._display = [
+            p + (c - p) * t for p, c in zip(self._prev, self._target)
+        ]
         self.draw()
-        self.timeout_add(self.frequency, self._update)
+        self.timeout_add(ANIM_INTERVAL, self._animate)
 
     def _color_for_pct(self, pct):
         if pct >= self.threshold_high:
@@ -64,7 +82,7 @@ class CPUBars(base._Widget, base.MarginMixin):
         available_height = self.bar.height - self.margin_y * 2
         x = self.margin_x
 
-        for pct in self._percentages:
+        for pct in self._display:
             bar_h = max(1, int(available_height * pct / 100.0))
             y = self.margin_y + (available_height - bar_h)
 
