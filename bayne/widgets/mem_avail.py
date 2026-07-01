@@ -29,13 +29,13 @@ class MemAvail(base.InLoopPollText):
 
     def timer_setup(self):
         super().timer_setup()
-        self.timeout_add(ANIM_INTERVAL, self._animate)
 
     def poll(self):
         mem = psutil.virtual_memory()
         self._prev_gb = self._target_gb
         self._target_gb = mem.available / (1024 ** 3)
         self._sample_time = time.monotonic()
+        self.timeout_add(ANIM_INTERVAL, self._animate)
         return self._format(self._target_gb)
 
     def _format(self, avail_gb):
@@ -46,7 +46,9 @@ class MemAvail(base.InLoopPollText):
         return f"mem {avail_gb:.1f}GB"
 
     def _animate(self):
-        t = min(1.0, (time.monotonic() - self._sample_time) / self.update_interval)
+        t = (time.monotonic() - self._sample_time) / self.update_interval
+        if t >= 1.0:
+            return
         display_gb = self._prev_gb + (self._target_gb - self._prev_gb) * t
         self.update(self._format(display_gb))
         self.timeout_add(ANIM_INTERVAL, self._animate)

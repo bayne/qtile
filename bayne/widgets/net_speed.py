@@ -33,7 +33,6 @@ class NetSpeed(base.InLoopPollText):
 
     def timer_setup(self):
         super().timer_setup()
-        self.timeout_add(ANIM_INTERVAL, self._animate)
 
     @staticmethod
     def _fmt_speed(bytes_per_sec):
@@ -51,6 +50,7 @@ class NetSpeed(base.InLoopPollText):
         self._target_down = down
         self._target_up = up
         self._sample_time = time.monotonic()
+        self.timeout_add(ANIM_INTERVAL, self._animate)
 
         return self._format(down, up)
 
@@ -63,7 +63,9 @@ class NetSpeed(base.InLoopPollText):
         return f"net ↓{self._fmt_speed(down)} ↑{self._fmt_speed(up)}"
 
     def _animate(self):
-        t = min(1.0, (time.monotonic() - self._sample_time) / self.update_interval)
+        t = (time.monotonic() - self._sample_time) / self.update_interval
+        if t >= 1.0:
+            return
         display_down = self._prev_down + (self._target_down - self._prev_down) * t
         display_up = self._prev_up + (self._target_up - self._prev_up) * t
         self.update(self._format(display_down, display_up))

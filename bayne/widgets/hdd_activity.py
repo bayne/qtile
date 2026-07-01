@@ -43,7 +43,6 @@ class HDDActivity(base._Widget, base.MarginMixin):
 
     def timer_setup(self):
         self.timeout_add(self.frequency, self._sample)
-        self.timeout_add(ANIM_INTERVAL, self._animate)
 
     def _sample(self):
         cur = psutil.disk_io_counters()
@@ -58,10 +57,13 @@ class HDDActivity(base._Widget, base.MarginMixin):
             min(100.0, write_bytes / max_bytes * 100.0),
         ]
         self._sample_time = time.monotonic()
+        self.timeout_add(ANIM_INTERVAL, self._animate)
         self.timeout_add(self.frequency, self._sample)
 
     def _animate(self):
-        t = min(1.0, (time.monotonic() - self._sample_time) / self.frequency)
+        t = (time.monotonic() - self._sample_time) / self.frequency
+        if t >= 1.0:
+            return
         self._display = [p + (c - p) * t for p, c in zip(self._prev, self._target)]
         self.draw()
         self.timeout_add(ANIM_INTERVAL, self._animate)
