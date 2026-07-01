@@ -8,7 +8,7 @@ ANIM_INTERVAL = 0.05
 
 
 class NetSpeed(base.InLoopPollText):
-    """Display network speed in KB/s or MB/s, turning red when high.
+    """Display network speed in MB/s, turning red when high.
 
     Interpolates between samples at ~20fps for smooth animation.
     """
@@ -37,10 +37,8 @@ class NetSpeed(base.InLoopPollText):
 
     @staticmethod
     def _fmt_speed(bytes_per_sec):
-        kb = bytes_per_sec / 1024
-        if kb >= 1024:
-            return f"{kb / 1024:.1f}MB/s"
-        return f"{kb:.0f}KB/s"
+        mb = bytes_per_sec / (1024 * 1024)
+        return f"{mb:.1f}MB/s"
 
     def poll(self):
         cur = psutil.net_io_counters(pernic=False)
