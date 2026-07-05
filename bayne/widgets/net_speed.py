@@ -30,6 +30,7 @@ class NetSpeed(base.InLoopPollText):
         self._target_down = 0.0
         self._target_up = 0.0
         self._sample_time = time.monotonic()
+        self._anim_gen = 0
 
     def timer_setup(self):
         super().timer_setup()
@@ -40,6 +41,8 @@ class NetSpeed(base.InLoopPollText):
         return f"{mb:.1f}MB/s"
 
     def poll(self):
+        self._anim_gen += 1
+        gen = self._anim_gen
         cur = psutil.net_io_counters(pernic=False)
         down = (cur.bytes_recv - self._io_prev.bytes_recv) / self.update_interval
         up = (cur.bytes_sent - self._io_prev.bytes_sent) / self.update_interval
@@ -50,7 +53,7 @@ class NetSpeed(base.InLoopPollText):
         self._target_down = down
         self._target_up = up
         self._sample_time = time.monotonic()
-        self.timeout_add(ANIM_INTERVAL, self._animate)
+        self.timeout_add(ANIM_INTERVAL, lambda: self._animate(gen))
 
         return self._format(down, up)
 
@@ -62,11 +65,13 @@ class NetSpeed(base.InLoopPollText):
             self.foreground = self._normal_fg
         return f"net ↓{self._fmt_speed(down)} ↑{self._fmt_speed(up)}"
 
-    def _animate(self):
+    def _animate(self, gen):
+        if gen != self._anim_gen:
+            return
         t = (time.monotonic() - self._sample_time) / self.update_interval
         if t >= 1.0:
             return
         display_down = self._prev_down + (self._target_down - self._prev_down) * t
         display_up = self._prev_up + (self._target_up - self._prev_up) * t
         self.update(self._format(display_down, display_up))
-        self.timeout_add(ANIM_INTERVAL, self._animate)
+        self.timeout_add(ANIM_INTERVAL, lambda: self._animate(gen))

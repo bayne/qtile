@@ -39,6 +39,7 @@ class CPUBars(base._Widget, base.MarginMixin):
         self._target = [0.0] * self._core_count
         self._display = [0.0] * self._core_count
         self._sample_time = time.monotonic()
+        self._anim_gen = 0
 
     def _configure(self, qtile, bar):
         super()._configure(qtile, bar)
@@ -55,13 +56,17 @@ class CPUBars(base._Widget, base.MarginMixin):
         self.timeout_add(self.frequency, self._sample)
 
     def _sample(self):
+        self._anim_gen += 1
+        gen = self._anim_gen
         self._prev = list(self._display)
         self._target = psutil.cpu_percent(percpu=True)
         self._sample_time = time.monotonic()
-        self.timeout_add(ANIM_INTERVAL, self._animate)
+        self.timeout_add(ANIM_INTERVAL, lambda: self._animate(gen))
         self.timeout_add(self.frequency, self._sample)
 
-    def _animate(self):
+    def _animate(self, gen):
+        if gen != self._anim_gen:
+            return
         t = (time.monotonic() - self._sample_time) / self.frequency
         if t >= 1.0:
             return
@@ -69,7 +74,7 @@ class CPUBars(base._Widget, base.MarginMixin):
             p + (c - p) * t for p, c in zip(self._prev, self._target)
         ]
         self.draw()
-        self.timeout_add(ANIM_INTERVAL, self._animate)
+        self.timeout_add(ANIM_INTERVAL, lambda: self._animate(gen))
 
     def _color_for_pct(self, pct):
         if pct >= self.threshold_high:

@@ -36,6 +36,7 @@ class HDDActivity(base._Widget, base.MarginMixin):
         self._target = [0.0, 0.0]
         self._display = [0.0, 0.0]
         self._sample_time = time.monotonic()
+        self._anim_gen = 0
 
     def _configure(self, qtile, bar):
         super()._configure(qtile, bar)
@@ -45,6 +46,8 @@ class HDDActivity(base._Widget, base.MarginMixin):
         self.timeout_add(self.frequency, self._sample)
 
     def _sample(self):
+        self._anim_gen += 1
+        gen = self._anim_gen
         cur = psutil.disk_io_counters()
         read_bytes = (cur.read_bytes - self._io_prev.read_bytes) / self.frequency
         write_bytes = (cur.write_bytes - self._io_prev.write_bytes) / self.frequency
@@ -57,16 +60,18 @@ class HDDActivity(base._Widget, base.MarginMixin):
             min(100.0, write_bytes / max_bytes * 100.0),
         ]
         self._sample_time = time.monotonic()
-        self.timeout_add(ANIM_INTERVAL, self._animate)
+        self.timeout_add(ANIM_INTERVAL, lambda: self._animate(gen))
         self.timeout_add(self.frequency, self._sample)
 
-    def _animate(self):
+    def _animate(self, gen):
+        if gen != self._anim_gen:
+            return
         t = (time.monotonic() - self._sample_time) / self.frequency
         if t >= 1.0:
             return
         self._display = [p + (c - p) * t for p, c in zip(self._prev, self._target)]
         self.draw()
-        self.timeout_add(ANIM_INTERVAL, self._animate)
+        self.timeout_add(ANIM_INTERVAL, lambda: self._animate(gen))
 
     def _color_for_pct(self, pct):
         if pct >= self.threshold_high:
