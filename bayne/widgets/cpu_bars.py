@@ -3,10 +3,12 @@ import time
 import cairocffi
 import psutil
 
+from libqtile import log_utils
 from libqtile.widget import base
 
 ANIM_INTERVAL = 0.05
 
+logger = log_utils.logger
 
 class CPUBars(base._Widget, base.MarginMixin):
     """Display per-core CPU usage as vertical bars with color thresholds.
@@ -19,7 +21,7 @@ class CPUBars(base._Widget, base.MarginMixin):
     defaults = [
         ("frequency", 1, "Update frequency in seconds"),
         ("bar_width", 4, "Width of each core bar in pixels"),
-        ("bar_spacing", 1, "Spacing between bars in pixels"),
+        ("bar_spacing", 2, "Spacing between bars in pixels"),
         ("color_low", "00ff00", "Color for usage < 60%"),
         ("color_mid", "ffff00", "Color for usage 60-80%"),
         ("color_high", "ff0000", "Color for usage > 80%"),
@@ -29,6 +31,7 @@ class CPUBars(base._Widget, base.MarginMixin):
 
     def __init__(self, **config):
         self._core_count = psutil.cpu_count()
+        logger.error(f'core count: {self._core_count}')
         width = config.pop("width", None)
         if width is None:
             width = 10

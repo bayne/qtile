@@ -487,6 +487,7 @@ class DQHDWorkflow:
                             fmt="cpu",
                         ),
                         CPUBars(
+                            width=64,
                             margin_x=2,
                             margin_y=4,
                         ),
