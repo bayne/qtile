@@ -60,9 +60,11 @@ dqhd_workflow.register_hooks()
 
 SHARE_SCREEN_IDX = 3
 
+env = os.environ.copy()
+env.update({'PATH': env['PATH'] + ':/home/bpayne/.bin'})
 rofi = Rofi(
     [
-        # RofiScript(name="tmxb", path="/usr/bin/tmxb-rofi"),
+        RofiScript(name="tmxb", path="/usr/bin/tmxb-rofi"),
         'window',
         RofiScript(
             name="bookmark", path="/home/bpayne/Code/mine/dotfile/rofi-scripts/bookmarks.py"
@@ -75,8 +77,6 @@ rofi = Rofi(
     ]
 )
 
-env = os.environ.copy()
-env.update({'PATH': env['PATH'] + ':/home/bpayne/.bin'})
 # https://github.com/qtile/qtile/blob/master/libqtile/backend/x11/xkeysyms.py
 keys = [
     *dqhd_workflow.keys(),
