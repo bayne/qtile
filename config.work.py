@@ -71,9 +71,9 @@ rofi = Rofi(
         ),
         'drun',
         'run',
-        RofiScript(
-            name="intellij", path="/home/bpayne/Code/mine/dotfile/rofi-scripts/jetbrains.py"
-        ),
+        # RofiScript(
+        #     name="intellij", path="/home/bpayne/Code/mine/dotfile/rofi-scripts/jetbrains.py"
+        # ),
     ]
 )
 
