@@ -18,6 +18,7 @@ running something else, please see `Installing From Source`_.
     Slackware <slackware>
     FreeBSD <freebsd>
     NixOS <nixos>
+    Void <void>
     Without DM <without-dm>
 
 .. _installing-from-source:
@@ -113,66 +114,74 @@ Or install qtile-git with:
 
     git clone https://github.com/qtile/qtile.git
     cd qtile
-    uv tool install .
+    uv tool install .                               # for minimal dependencies
+    uv tool install .[dev,widgets,optional-core]    # for all dependencies
+
+Installing other dependencies
+-----------------------------
+
+If you use ``uv`` to install qtile, any python modules that you want to use with it
+must be installed in the same environment. You have a few options for doing this:
+
+At installation time:
+
+.. code-block:: bash
+
+    # Install package from pypi
+    uv tool install --with package-name qtile  # can use qtile[widgets] etc. as above
+
+    # Install from github repo
+    uv tool install --with git+https://github.com/elParaguayo/qtile-extras/ .
+
+    # Install from custom requirements file
+    uv tool install --with-requirements /path/to/requirements.txt .
+
+Installing packages after installation is a bit more complicated and does not seem to
+be officially supported when using ``uv tool``. However, the following code should work:
+
+.. code-block:: bash
+
+    cd $(uv tool dir)/qtile
+    uv pip install package-name
 
 .. _starting-qtile:
 
 Starting Qtile
 ==============
 
-There are several ways to start Qtile. The most common way is via an entry in
-your X session manager's menu. The default Qtile behavior can be invoked by
-creating a `qtile.desktop
-<https://github.com/qtile/qtile/blob/master/resources/qtile.desktop>`_ file in
-``/usr/share/xsessions``.
+The recommended way to start Qtile is as a systemd user service launched from
+your display manager (SDDM, GDM, LightDM, greetd, ...). Starting Qtile this way
+activates ``graphical-session.target``, so services such as xdg-desktop-portal
+(screen sharing, file pickers, ...) work correctly, and it restarts Qtile if it
+crashes. The same setup works whether you run Qtile on X11 or as a Wayland
+compositor: Qtile detects the backend from the session it is launched in, so a
+single session file serves both.
 
-A second way to start Qtile is a custom X session. This way allows you to
-invoke Qtile with custom arguments, and also allows you to do any setup you
-want (e.g. special keyboard bindings like mapping caps lock to control, setting
-your desktop background, etc.) before Qtile starts. If you're using an X
-session manager, you still may need to create a ``custom.desktop`` file similar
-to the ``qtile.desktop`` file above, but with ``Exec=/etc/X11/xsession``. Then,
-create your own ``~/.xsession``. There are several examples of user defined
-``xsession`` s in the `qtile-examples
-<https://github.com/qtile/qtile-examples>`_ repository.
+Qtile ships the required files in `resources/
+<https://github.com/qtile/qtile/tree/master/resources>`_:
 
-If there is no display manager such as SDDM, LightDM or other and there is need
-to start Qtile directly from ``~/.xinitrc`` do that by adding 
-``exec qtile start`` at the end.
+* `qtile.desktop
+  <https://github.com/qtile/qtile/blob/master/resources/qtile.desktop>`_ is the
+  session entry your display manager lists. Install it to
+  ``/usr/share/xsessions`` to offer an X11 session and/or
+  ``/usr/share/wayland-sessions`` to offer a Wayland session.
+* `qtile.service
+  <https://github.com/qtile/qtile/blob/master/resources/qtile.service>`_ and
+  `qtile-session.target
+  <https://github.com/qtile/qtile/blob/master/resources/qtile-session.target>`_
+  are the systemd user units that run Qtile and pull in
+  ``graphical-session.target``. Install both to ``~/.config/systemd/user/``.
 
-In very special cases, ex. Qtile crashing during session, then suggestion would
-be to start through a loop to save running applications:
+See `resources/README
+<https://github.com/qtile/qtile/blob/master/resources/README>`_ for the details
+of installing these files, handing the session environment to user services, and
+pinning an xdg-desktop-portal backend.
 
-.. code-block:: bash
-
-    while true; do
-        qtile
-    done
-
-
-Wayland
-=======
-
-Qtile can be run as a Wayland compositor rather than an X11 window manager. For
-this, Qtile uses wlroots_, a compositor library which is undergoing fast
-development. Be aware that some distributions package outdated versions of
-wlroots. We are trying our best to keep up with latest wlroots release.
-
-With the Wayland dependencies in place, Qtile can be run either from a TTY, or
-within an existing X11 or Wayland session where it will run inside a nested
-window:
-
-.. code-block:: bash
-
-    qtile start -b wayland
+To start Qtile without a display manager -- for example autologin on a TTY --
+see :doc:`without-dm`.
 
 See the :ref:`Wayland <wayland>` page for more information on running Qtile as
 a Wayland compositor.
-
-Similar to the xsession example above, a wayland session file can be used to start qtile
-from a login manager. To use this, you should create a `qtile-wayland.desktop
-<https://github.com/qtile/qtile/blob/master/resources/qtile-wayland.desktop>`_ file in
-``/usr/share/wayland-sessions``.
 
 udev rules
 ==========

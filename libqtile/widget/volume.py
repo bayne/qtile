@@ -46,7 +46,7 @@ class VolumeBase(base._TextBox):
     def __init__(self, **config):
         base._TextBox.__init__(self, "", **config)
         self.add_defaults(VolumeBase.defaults)
-        self.surfaces = {}
+        self.images = {}
         self.volume = None
         self.is_mute = False
 
@@ -72,8 +72,7 @@ class VolumeBase(base._TextBox):
             else:  # self.volume >= 80:
                 img_name = "audio-volume-high"
 
-            self.drawer.ctx.set_source(self.surfaces[img_name])
-            self.drawer.ctx.paint()
+            self.drawer.draw_image(self.images[img_name])
         elif self.emoji:
             if len(self.emoji_list) < 4:
                 self.emoji_list = ["\U0001f507", "\U0001f508", "\U0001f509", "\U0001f50a"]
@@ -109,7 +108,7 @@ class VolumeBase(base._TextBox):
             img.resize(height=new_height)
             if img.width > self.length:
                 self.length = img.width + self.padding * 2
-            self.surfaces[name] = img.pattern
+            self.images[name] = img
 
     def draw(self):
         if self.theme_path:
@@ -166,8 +165,10 @@ class Volume(VolumeBase):
             }
         )
 
+        self._volume_task = None
+
     def timer_setup(self):
-        create_task(self.do_volume())
+        self._volume_task = create_task(self.do_volume())
         if self.theme_path:
             self.setup_images()
 
@@ -197,7 +198,7 @@ class Volume(VolumeBase):
             self._update_drawer()
             self.bar.draw()
         await asyncio.sleep(self.update_interval)
-        create_task(self.do_volume())
+        self._volume_task = create_task(self.do_volume())
 
     async def get_volume(self):
         try:
@@ -258,3 +259,8 @@ class Volume(VolumeBase):
     def run_app(self):
         if self.volume_app is not None:
             subprocess.Popen(self.volume_app, shell=True)
+
+    def finalize(self):
+        if self._volume_task is not None:
+            self._volume_task.cancel()
+        super().finalize()

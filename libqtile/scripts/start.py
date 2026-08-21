@@ -7,7 +7,7 @@ from sys import exit
 from typing import TYPE_CHECKING
 
 import libqtile.backend
-from libqtile import confreader, qtile
+from libqtile import confreader, pangocffi, qtile
 from libqtile.log_utils import logger
 from libqtile.utils import VERSION, get_config_file
 
@@ -41,15 +41,16 @@ def get_default_config():
 
 
 def make_qtile(options) -> Qtile | None:
-    qtile.core.name = options.backend
-    if missing_deps := libqtile.backend.has_deps(options.backend):
-        print(f"Backend '{options.backend}' missing required Python dependencies:")
+    backend = options.backend or libqtile.backend.detect_backend()
+    qtile.core.name = backend
+    if missing_deps := libqtile.backend.has_deps(backend):
+        print(f"Backend '{backend}' missing required Python dependencies:")
         for dep in missing_deps:
             print("\t", dep)
 
         return None
 
-    kore = libqtile.backend.get_core(options.backend)
+    kore = libqtile.backend.get_core(backend)
 
     if not path.isfile(options.configfile):
         try:
@@ -84,6 +85,9 @@ def start(options):
         locale.setlocale(locale.LC_ALL, "")
     except locale.Error:
         pass
+
+    # Initialise fontconfig before starting qtile to prevent races
+    pangocffi.init_fontconfig()
 
     libpath = (LIBQTILE_PATH / "..").resolve()
     logger.warning(f"Starting Qtile {VERSION} from {libpath}")
@@ -145,7 +149,7 @@ def add_subcommand(subparsers, parents):
     parser.add_argument(
         "-b",
         "--backend",
-        default="x11",
+        default=None,
         dest="backend",
         choices=libqtile.backend.CORES.keys(),
         help="Use specified backend.",

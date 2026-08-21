@@ -1,13 +1,6 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 from libqtile import hook, utils
-from libqtile.command.base import CommandObject, expose_command
+from libqtile.command.base import CommandObject, ItemT, expose_command
 from libqtile.log_utils import logger
-
-if TYPE_CHECKING:
-    from libqtile.command.base import ItemT
 
 
 class _Group(CommandObject):
@@ -129,6 +122,10 @@ class _Group(CommandObject):
                 floating = [x for x in self.windows if x.floating and not x.minimized]
                 screen_rect = self.screen.get_rect()
                 if normal:
+                    # Send current window first to prevent flickering
+                    if self.current_window is not None and self.current_window in normal:
+                        normal.remove(self.current_window)
+                        normal.insert(0, self.current_window)
                     try:
                         self.layout.layout(normal, screen_rect)
                     except Exception:
@@ -293,14 +290,16 @@ class _Group(CommandObject):
             if win in self.tiled_windows:
                 self.tiled_windows.remove(win)
 
+        widget_has_keyboard = self.qtile.widget_has_keyboard()
+
         # a notification may not have focus
-        if hadfocus:
+        if hadfocus and not widget_has_keyboard:
             self.focus(nextfocus, warp=True, force=force)
             # no next focus window means focus changed to nothing
             if not nextfocus:
                 hook.fire("focus_change")
         elif self.screen:
-            self.layout_all()
+            self.layout_all(focus=not widget_has_keyboard)
 
     def mark_floating(self, win, floating):
         if floating:

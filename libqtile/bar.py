@@ -1,22 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import typing
 from collections import defaultdict
+from typing import Any
 
 from libqtile import configurable, hook
-from libqtile.command.base import CommandObject, expose_command
+from libqtile.command.base import CommandObject, ItemT, expose_command
 from libqtile.log_utils import logger
-from libqtile.utils import has_transparency, is_valid_colors
+from libqtile.utils import ColorsType, has_transparency, is_valid_colors
 
 if typing.TYPE_CHECKING:
-    import asyncio
-    from typing import Any
-
     from libqtile.backend.base import Drawer, Internal, Window
-    from libqtile.command.base import ItemT
     from libqtile.config import Screen
     from libqtile.core.manager import Qtile
-    from libqtile.utils import ColorsType
     from libqtile.widget.base import _Widget
 
 NESW = ("top", "right", "bottom", "left")
@@ -118,6 +115,9 @@ class Gap:
         Info for this object.
         """
         return dict(position=self.position)
+
+    def has_keyboard(self) -> bool:
+        return False
 
 
 class Obj:
@@ -266,22 +266,15 @@ class Bar(Gap, configurable.Configurable, CommandObject):
             # Whereas we won't have a window if we're startup up for the first time or
             # the window has been killed by us no longer using the bar's screen
 
-            # X11 only:
-            # To preserve correct display of SysTray widget, we need a 24-bit
-            # window where the user requests an opaque bar.
             if qtile.core.name == "x11":
-                depth = (
-                    32
-                    if has_transparency(self.background)
-                    else qtile.core.conn.default_screen.root_depth
-                )
-
-                self.window = qtile.core.create_internal(  # type: ignore [call-arg]
-                    self.x, self.y, width, height, depth
-                )
-
+                if has_transparency(self.background):
+                    depth = 32
+                else:
+                    depth = qtile.core.conn.default_screen.root_depth  # type: ignore[attr-defined]
             else:
-                self.window = qtile.core.create_internal(self.x, self.y, width, height)
+                depth = 32  # This could be anything as it's not needed for wayland.
+
+            self.window = qtile.core.create_internal(self.x, self.y, width, height, depth)
 
             self.window.opacity = self.opacity
             self.window.unhide()
@@ -541,13 +534,15 @@ class Bar(Gap, configurable.Configurable, CommandObject):
 
     def get_widget_in_position(self, x: int, y: int) -> _Widget | None:
         if self.horizontal:
-            for i in self.widgets:
-                if x < i.offsetx + i.length:
-                    return i
+            if self.border_width[3] <= y < self.size:
+                for i in self.widgets:
+                    if x < i.offsetx + i.length:
+                        return i
         else:
-            for i in self.widgets:
-                if y < i.offsety + i.length:
-                    return i
+            if self.border_width[0] <= x < self.size:
+                for i in self.widgets:
+                    if y < i.offsety + i.length:
+                        return i
         return None
 
     def process_button_click(self, x: int, y: int, button: int) -> None:
@@ -555,8 +550,6 @@ class Bar(Gap, configurable.Configurable, CommandObject):
 
         # If we're clicking on a bar that's not on the current screen, focus that screen
         if self.screen and self.screen is not self.qtile.current_screen:
-            if self.qtile.core.name == "x11" and self.qtile.current_window:
-                self.qtile.current_window._grab_click()
             index = self.qtile.screens.index(self.screen)
             self.qtile.focus_screen(index, warp=False)
 
@@ -628,13 +621,18 @@ class Bar(Gap, configurable.Configurable, CommandObject):
         """
         Removes keyboard focus from the widget.
         """
-        if self._saved_focus is not None:
+        assert self.qtile is not None
+        if self._saved_focus is not None and self._saved_focus.wid in self.qtile.windows_map:
             self._saved_focus.focus(False)
+        self._saved_focus = None
         self._has_keyboard = None
 
     def draw(self) -> None:
         assert self.qtile is not None
 
+        if not hasattr(self, "drawer"):
+            # The bar has been finalized (the drawer is deleted) or not yet configured
+            return
         if not self.widgets:
             return  # calling self._actual_draw in this case would cause a NameError.
         if not self._draw_queued:
@@ -645,6 +643,8 @@ class Bar(Gap, configurable.Configurable, CommandObject):
 
     def _actual_draw(self) -> None:
         self._draw_queued = False
+        if not hasattr(self, "drawer"):
+            return
         self._resize(self.length, self.widgets)
         # We draw the border before the widgets
         if any(self.border_width):
@@ -694,6 +694,10 @@ class Bar(Gap, configurable.Configurable, CommandObject):
                 )
 
         for i in self.widgets:
+            # Widgets are finalized before bars so a queued draw can run while
+            # the bar is alive but its widgets are already dead
+            if i.finalized:
+                continue
             try:
                 i.draw()
             except Exception:
@@ -742,6 +746,8 @@ class Bar(Gap, configurable.Configurable, CommandObject):
             position=self.position,
             widgets=[i.info() for i in self.widgets],
             window=self.window.wid if self.window else None,
+            x=self.x,
+            y=self.y,
         )
 
     def is_show(self) -> bool:
@@ -798,6 +804,9 @@ class Bar(Gap, configurable.Configurable, CommandObject):
             else:
                 # Bar is not reserving screen space so let's keep above other windows
                 self.window.keep_above(enable=True)
+
+    def has_keyboard(self) -> bool:
+        return self._has_keyboard is not None
 
 
 BarType = Bar | Gap

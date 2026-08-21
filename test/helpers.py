@@ -10,6 +10,7 @@ import functools
 import logging
 import multiprocessing
 import os
+import select
 import signal
 import subprocess
 import sys
@@ -19,7 +20,7 @@ import traceback
 from abc import ABCMeta, abstractmethod
 from pathlib import Path
 
-from libqtile import command, config, ipc, layout
+from libqtile import command, config, ipc, layout, pangocffi
 from libqtile.confreader import Config
 from libqtile.core.manager import Qtile
 from libqtile.lazy import lazy
@@ -155,10 +156,20 @@ class TestManager:
         self.testwindows = []
         self.logspipe = None
 
+    def timeout_handler(self, signum, frame):
+        os.kill(self.proc.pid, signal.SIGUSR2)
+        subprocess.run(["ps", "awfux"], stdout=sys.stderr)
+        old = self._old_sigalrm_handler
+        if callable(old):
+            old(signum, frame)
+
     def __enter__(self):
         """Set up resources"""
         faulthandler.enable(all_threads=True)
         faulthandler.register(signal.SIGUSR2, all_threads=True)
+        self._old_sigalrm_handler = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, self.timeout_handler)
+        faulthandler.register(signal.SIGALRM, all_threads=True, chain=True)
         self._sockfile = tempfile.NamedTemporaryFile()
         self.sockfile = self._sockfile.name
         return self
@@ -180,7 +191,36 @@ class TestManager:
         # fiddling with the buffer size to grow it to whatever github allows.
         return os.read(self.logspipe, 64 * 1024).decode("utf-8")
 
+    def _drain_logs(self):
+        if self.logspipe is None:
+            return ""
+        chunks = []
+        while True:
+            readable, _, _ = select.select([self.logspipe], [], [], 0)
+            if not readable:
+                break
+            try:
+                data = os.read(self.logspipe, 64 * 1024)
+            except OSError:
+                break
+            if not data:
+                break
+            chunks.append(data)
+        return b"".join(chunks).decode("utf-8", "replace")
+
+    def _dump_logs(self, header):
+        logs = self._drain_logs()
+        if logs:
+            print(f"{header}\n{logs}", file=sys.stderr)
+
     def start(self, config_class, no_spawn=False, state=None):
+        # the x server emits a real ScreenChangeNotify shortly after startup;
+        # debouncing it would fire the screen_change hook (and possibly
+        # reconfigure_screens()) at an arbitrary point mid-test, so configs
+        # that aren't explicitly testing the debounce opt out of it.
+        if not hasattr(config_class, "screen_change_debounce_timeout"):
+            config_class.screen_change_debounce_timeout = 0
+
         multiprocessing.set_start_method("fork", force=True)
         readlogs, writelogs = os.pipe()
         rpipe, wpipe = multiprocessing.Pipe()
@@ -188,18 +228,21 @@ class TestManager:
         def run_qtile():
             try:
                 rpipe.close()
+                os.close(readlogs)
                 os.environ.pop("DISPLAY", None)
                 os.environ.pop("WAYLAND_DISPLAY", None)
                 init_log(self.log_level)
-                kore = self.backend.create()
-                os.environ.update(self.backend.env)
-                from libqtile.core.lifecycle import lifecycle
 
-                os.close(readlogs)
                 formatter = logging.Formatter("%(levelname)s - %(message)s")
                 handler = logging.StreamHandler(os.fdopen(writelogs, "w"))
                 handler.setFormatter(formatter)
                 logger.addHandler(handler)
+
+                # Initialise fontconfig before starting qtile to prevent races
+                pangocffi.init_fontconfig()
+                kore = self.backend.create()
+                os.environ.update(self.backend.env)
+                from libqtile.core.lifecycle import lifecycle
 
                 Qtile(
                     kore,
@@ -228,6 +271,7 @@ class TestManager:
                 self.c = command.client.InteractiveCommandClient(ipc_command)
                 self.backend.configure(self)
                 return
+            self._dump_logs("qtile failed to start; captured std* output:")
             if rpipe.poll(0.1):
                 error = rpipe.recv()
                 raise AssertionError(f"Error launching qtile, traceback:\n{error}")
@@ -275,6 +319,7 @@ class TestManager:
 
             if self.proc.exitcode:
                 print(f"qtile exited with exitcode: {self.proc.exitcode:d}", file=sys.stderr)
+                self._dump_logs("qtile log output before exit:")
 
             self.proc = None
 

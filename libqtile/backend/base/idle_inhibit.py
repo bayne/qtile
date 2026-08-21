@@ -1,15 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import IntEnum, auto
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING, Any
 
 from libqtile import hook
 from libqtile.log_utils import logger
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from typing import Any
-
     from libqtile.backend.base.core import Core
     from libqtile.backend.base.window import Window
     from libqtile.core.manager import Qtile
@@ -85,10 +83,7 @@ class Inhibitor:
         return f"<window={name} type={mode} status={active}>"
 
 
-TInhibitor = TypeVar("TInhibitor", bound=Inhibitor)
-
-
-class IdleInhibitorManager(Generic[TInhibitor]):
+class IdleInhibitorManager[TInhibitor: Inhibitor]:
     def __init__(self, core: Core) -> None:
         self.core = core
         self.inhibitors: list[TInhibitor] = []

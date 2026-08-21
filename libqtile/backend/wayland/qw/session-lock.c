@@ -63,16 +63,22 @@ void qw_session_lock_output_create_blanking_rects(struct qw_output *output) {
 // blanking rect attached to that output.
 // Ensures lock surfaces always cover the full output geometry.
 void qw_session_lock_output_change(struct qw_output *output) {
+    if (output == NULL) {
+        return;
+    }
     int x, y, w, h;
     x = output->full_area.x;
     y = output->full_area.y;
     w = output->full_area.width;
     h = output->full_area.height;
 
-    if (output->lock_surface != NULL) {
+    /* Safely check that the lock_surface and its underlying scene tree exist */
+    if (output->lock_surface && output->lock_surface->surface) {
         struct wlr_scene_tree *scene_tree = output->lock_surface->surface->data;
-        wlr_scene_node_set_position(&scene_tree->node, x, y);
-        wlr_session_lock_surface_v1_configure(output->lock_surface, w, h);
+        if (scene_tree != NULL) {
+            wlr_scene_node_set_position(&scene_tree->node, x, y);
+            wlr_session_lock_surface_v1_configure(output->lock_surface, w, h);
+        }
     }
 
     if (output->blanking_rect != NULL) {
@@ -109,17 +115,21 @@ void qw_session_lock_surface_handle_destroy(struct wl_listener *listener, void *
     struct qw_session_lock_surface *sls = wl_container_of(listener, sls, surface_destroy);
     struct qw_server *server = sls->server;
 
-    if (server->lock != NULL && server->lock->lock != NULL) {
-        struct wlr_session_lock_surface_v1 *lock_surface = sls->lock_surface;
-        if (lock_surface->link.prev != NULL && lock_surface->link.next != NULL) {
-            wl_list_remove(&lock_surface->link);
-            wl_list_init(&lock_surface->link);
+    // Outputs keep a lock_surface back-pointer to this wlr_session_lock_surface_v1,
+    // which is freed after this handler. It is otherwise cleared only on explicit
+    // unlock in qw_session_lock_destroy, so an output-layout change after this
+    // surface dies (output destroyed on VT switch / display drop while locked)
+    // would dereference freed memory in qw_session_lock_output_change().
+    struct qw_output *o;
+    wl_list_for_each(o, &server->outputs, link) {
+        if (o->lock_surface == sls->lock_surface) {
+            o->lock_surface = NULL;
         }
+    }
 
-        // Focus shifts if other surfaces remain
-        if (!wl_list_empty(&server->lock->lock->surfaces)) {
-            qw_session_lock_focus_first_lock_surface(server);
-        }
+    if (server->lock != NULL && server->lock->lock != NULL &&
+        !wl_list_empty(&server->lock->lock->surfaces)) {
+        qw_session_lock_focus_first_lock_surface(server);
     }
 
     wl_list_remove(&sls->surface_destroy.link);
@@ -140,6 +150,10 @@ void qw_session_lock_destroy(struct qw_session_lock *session_lock, bool unlock) 
 
         server->lock_state = QW_SESSION_LOCK_UNLOCKED;
         qw_session_lock_restore_focus(server);
+
+        // Clear all output lock_surface pointers
+        struct qw_output *output;
+        wl_list_for_each(output, &server->outputs, link) { output->lock_surface = NULL; }
 
     } else if (server->lock_state == QW_SESSION_LOCK_LOCKED && !unlock) {
         wlr_log(WLR_ERROR, "Session lock client vanished without unlocking.");

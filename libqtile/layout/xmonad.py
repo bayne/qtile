@@ -1,18 +1,12 @@
-from __future__ import annotations
-
 import math
 from collections import namedtuple
-from typing import TYPE_CHECKING
+from typing import Any, Self
 
+from libqtile.backend.base import Window
 from libqtile.command.base import expose_command
+from libqtile.config import ScreenRect
+from libqtile.group import _Group
 from libqtile.layout.base import _SimpleLayoutBase
-
-if TYPE_CHECKING:
-    from typing import Any, Self
-
-    from libqtile.backend.base import Window
-    from libqtile.config import ScreenRect
-    from libqtile.group import _Group
 
 
 class MonadTall(_SimpleLayoutBase):
@@ -750,14 +744,12 @@ class MonadTall(_SimpleLayoutBase):
     def shuffle_up(self):
         """Shuffle the client up the stack"""
         self.clients.shuffle_up()
-        self.group.layout_all()
         self.group.focus(self.clients.current_client)
 
     @expose_command()
     def shuffle_down(self):
         """Shuffle the client down the stack"""
         self.clients.shuffle_down()
-        self.group.layout_all()
         self.group.focus(self.clients[self.focused])
 
     @expose_command()

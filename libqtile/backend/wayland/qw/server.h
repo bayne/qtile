@@ -19,6 +19,7 @@
 #include <wlr/types/wlr_data_control_v1.h>
 #include <wlr/types/wlr_data_device.h>
 #include <wlr/types/wlr_export_dmabuf_v1.h>
+#include <wlr/types/wlr_ext_data_control_v1.h>
 #include <wlr/types/wlr_foreign_toplevel_management_v1.h>
 #include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_gamma_control_v1.h>
@@ -97,6 +98,15 @@ typedef void (*cursor_motion_cb_t)(void *userdata);
 // Cursor button event callback: button, modifiers, pressed state, position, user data
 typedef int (*cursor_button_cb_t)(int button, uint32_t mask, bool pressed, int x, int y,
                                   void *userdata);
+
+// Pointer enter/leave/motion event on an Internal view (e.g. a bar).
+enum qw_pointer_internal_event_type {
+    QW_POINTER_INTERNAL_ENTER = 0,
+    QW_POINTER_INTERNAL_LEAVE = 1,
+    QW_POINTER_INTERNAL_MOTION = 2,
+};
+typedef void (*pointer_internal_event_cb_t)(int wid, int sx, int sy, int event_type,
+                                            void *userdata);
 
 // Forward declaration for wlr_output
 struct wlr_output;
@@ -196,6 +206,7 @@ struct qw_server {
     unmanage_view_cb_t unmanage_view_cb;
     cursor_motion_cb_t cursor_motion_cb;
     cursor_button_cb_t cursor_button_cb;
+    pointer_internal_event_cb_t pointer_internal_event_cb;
     on_screen_change_cb_t on_screen_change_cb;
     on_screen_reserve_space_cb_t on_screen_reserve_space_cb;
     view_activation_cb_t view_activation_cb;
@@ -211,6 +222,7 @@ struct qw_server {
     void *view_activation_cb_data;
     void *cb_data;
     struct qw_layer_view *exclusive_layer;
+    enum qw_session_lock_state lock_state;
 
     // Private data
     struct wl_event_loop *event_loop;
@@ -255,7 +267,6 @@ struct qw_server {
     struct wlr_session_lock_manager_v1 *lock_manager;
     struct qw_session_lock *lock;
     struct wlr_scene_tree *lock_tree;
-    enum qw_session_lock_state lock_state;
     struct wlr_foreign_toplevel_manager_v1 *ftl_mgr;
     struct wlr_virtual_keyboard_manager_v1 *virtual_keyboard;
     struct wlr_virtual_pointer_manager_v1 *virtual_pointer;
@@ -279,6 +290,7 @@ struct qw_server {
     struct wlr_relative_pointer_manager_v1 *relative_pointer_manager;
     struct wlr_pointer_constraints_v1 *pointer_constraints;
     struct wl_listener new_pointer_constraint;
+    struct wlr_keyboard *dummy_keyboard;
 };
 
 struct qw_drag_icon {
@@ -366,5 +378,11 @@ bool qw_server_inhibitor_surface_visible(struct qw_idle_inhibitor *inhibitor,
 
 void qw_server_add_idle_timer(struct qw_server *server, int seconds);
 void qw_server_remove_idle_timer(struct qw_server *server, int seconds);
+
+struct qw_view *qw_server_active_view(struct qw_server *server);
+
+void qw_server_add_dummy_input_devices(struct qw_server *server);
+
+void qw_server_test_destroy_output(struct qw_server *server, int index);
 
 #endif /* SERVER_H */

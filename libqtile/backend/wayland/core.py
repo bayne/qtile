@@ -34,8 +34,6 @@
 # Licensed under the MIT License.
 # See the LICENSE file in the root of this repository for details.
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import functools
@@ -48,20 +46,19 @@ import time
 from collections import defaultdict
 from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from libqtile import hook
+from libqtile import config, hook
 from libqtile.backend import base
-from libqtile.backend.base.core import Output
 from libqtile.backend.wayland import inputs
 from libqtile.backend.wayland.idle_inhibit import IdleInhibitorManager
 from libqtile.backend.wayland.idle_notify import IdleNotifier
-from libqtile.backend.wayland.window import Internal, Static, Window
+from libqtile.backend.wayland.window import Base, Internal, Static, Window
 from libqtile.command.base import allow_when_locked, expose_command
-from libqtile.config import ScreenRect
+from libqtile.config import Output, Screen, ScreenRect
 from libqtile.images import Img
 from libqtile.log_utils import logger
-from libqtile.utils import QtileError, reap_zombies, rgb
+from libqtile.utils import ColorType, QtileError, reap_zombies, rgb
 
 try:
     from libqtile.backend.wayland._ffi import ffi, lib
@@ -70,11 +67,6 @@ except ModuleNotFoundError:
     print("Warning: Wayland backend not built. Backend will not run.")
 
     from libqtile.backend.wayland.ffi_stub import ffi, lib
-
-if TYPE_CHECKING:
-    from libqtile import config
-    from libqtile.config import Screen
-    from libqtile.utils import ColorType
 
 
 def translate_masks(modifiers: list[str]) -> int:
@@ -142,6 +134,14 @@ def cursor_button_cb(
     if core.handle_cursor_button(button, mask, pressed, x, y):
         return 1
     return 0
+
+
+@ffi.def_extern()
+def pointer_internal_event_cb(
+    wid: int, sx: int, sy: int, event_type: int, userdata: ffi.CData
+) -> None:
+    core = ffi.from_handle(userdata)
+    core.handle_pointer_internal_event(wid, sx, sy, event_type)
 
 
 @ffi.def_extern()
@@ -240,6 +240,8 @@ def get_wlr_log_level() -> int:
 
 class Core(base.Core):
     supports_restarting: bool = False
+    idle_inhibitor_manager: IdleInhibitorManager
+    idle_notifier: IdleNotifier
 
     def __init__(self) -> None:
         # this Internal window receives keyboard input, e.g. via the Prompt widget.
@@ -264,6 +266,7 @@ class Core(base.Core):
         self.qw.unmanage_view_cb = lib.unmanage_view_cb
         self.qw.cursor_motion_cb = lib.cursor_motion_cb
         self.qw.cursor_button_cb = lib.cursor_button_cb
+        self.qw.pointer_internal_event_cb = lib.pointer_internal_event_cb
         self.qw.on_screen_change_cb = lib.on_screen_change_cb
         self.qw.on_screen_reserve_space_cb = lib.on_screen_reserve_space_cb
         self.qw.view_activation_cb = lib.view_activation_cb
@@ -302,13 +305,17 @@ class Core(base.Core):
     # Callback to fetch qtile config parameters from wayc
     # Add additional parameters as needed (server.h: struct qw_qtile_config)
     def get_config(self) -> ffi.CData:
-        config = ffi.new("struct qw_qtile_config *")
         theme = self.qtile.config.wl_xcursor_theme
-        config.wl_xcursor_theme = (
-            ffi.new("char[]", theme.encode()) if theme is not None else ffi.NULL
+        theme_buf = ffi.new("char[]", theme.encode()) if theme is not None else ffi.NULL
+        config = ffi.new(
+            "struct qw_qtile_config *",
+            {
+                "wl_xcursor_theme": theme_buf,
+                "wl_xcursor_size": self.qtile.config.wl_xcursor_size,
+            },
         )
-        config.wl_xcursor_size = self.qtile.config.wl_xcursor_size
-        self._config = config  # Reference to keep config alive
+        # References to keep alive for c caller
+        self._config_keepalive = [theme_buf, config]
         return config
 
     def on_config_load(self, initial: bool) -> None:
@@ -317,6 +324,15 @@ class Core(base.Core):
         # Apply input device configuration
         if self.qtile.config.wl_input_rules:
             inputs.configure_input_devices(self.qw, self.qtile.config.wl_input_rules)
+
+        # Set xcursor environment variables from Python before calling into C.
+        # This avoids calling setenv() from C code, which is not thread-safe with
+        # respect to getenv() calls that may happen concurrently (e.g. from
+        # fontconfig/pango initialization in a glib worker thread). See #5818.
+        os.environ["XCURSOR_SIZE"] = str(self.qtile.config.wl_xcursor_size)
+        theme = self.qtile.config.wl_xcursor_theme
+        if theme is not None:
+            os.environ["XCURSOR_THEME"] = theme
 
         # Apply xcursor settings
         lib.qw_cursor_configure_xcursor(self.qw_cursor)
@@ -360,7 +376,7 @@ class Core(base.Core):
         # TODO: Also configure devices when a new device is added
 
     def handle_screen_change(self) -> None:
-        hook.fire("screen_change", None)
+        self.fire_screen_change(None)
 
     def get_screen_for_output(self, output: ffi.CData) -> Screen:
         assert self.qtile is not None
@@ -410,13 +426,26 @@ class Core(base.Core):
             int(self.qw_cursor.cursor.x), int(self.qw_cursor.cursor.y)
         )
 
+    def handle_pointer_internal_event(self, wid: int, sx: int, sy: int, event_type: int) -> None:
+        """Forward a pointer enter/leave/motion event on an Internal view."""
+        assert self.qtile is not None
+        win = self.qtile.windows_map.get(wid)
+        if not isinstance(win, base.Internal):
+            return
+        if event_type == lib.QW_POINTER_INTERNAL_ENTER:
+            win.process_pointer_enter(sx, sy)
+        elif event_type == lib.QW_POINTER_INTERNAL_LEAVE:
+            win.process_pointer_leave(sx, sy)
+        elif event_type == lib.QW_POINTER_INTERNAL_MOTION:
+            win.process_pointer_motion(sx, sy)
+
     def handle_cursor_button(self, button: int, mask: int, pressed: bool, x: int, y: int) -> bool:
         assert self.qtile is not None
         if pressed:
-            if not self.qw_cursor.implicit_grab.live:
-                self._focus_by_click()
-
             handled = self.qtile.process_button_click(int(button), int(mask), x, y)
+
+            if not handled and not self.qw_cursor.implicit_grab.live:
+                self._focus_by_click()
 
             if isinstance(self.qtile.hovered_window, Internal):
                 self.qtile.hovered_window.process_button_click(
@@ -428,6 +457,18 @@ class Core(base.Core):
             return handled
         else:
             return self.qtile.process_button_release(button, mask)
+
+    @expose_command
+    def get_cursor_shape_v1(self) -> str:
+        """
+        Get the current cursor shape name from cursor-shape-v1 protocol.
+
+        Returns None if the cursor has no shape name set.
+        """
+        cursor = self.qw_cursor
+        if cursor.current_shape_name == ffi.NULL:
+            return "default"
+        return ffi.string(cursor.current_shape_name).decode("utf-8")
 
     def handle_manage_view(self, view: ffi.CData) -> None:
         wid = self.new_wid()
@@ -475,7 +516,7 @@ class Core(base.Core):
         else:
             return False
 
-    def focus_window(self, win: base.WindowType) -> None:
+    def focus_window(self, win: Base) -> None:
         if self.qw.exclusive_layer != ffi.NULL:
             logger.debug("Keyboard focus withheld: focus is fixed to exclusive layer surface.")
             return
@@ -491,14 +532,30 @@ class Core(base.Core):
         # TODO logic imcomplete
         win._ptr.focus(win._ptr, False)  # What is the second argument?
 
+    def _grab_click_on_current_window(self) -> None:
+        """Grab button events on the current window.
+
+        Called before switching screens to ensure clicks on the now-unfocused
+        window will be intercepted to refocus it.
+        """
+        win = self.qtile.current_window
+        if win:
+            # In wayland backend, current_window is always an wayland Window
+            assert isinstance(win, Window)
+            win._grab_click()
+
     def _focus_by_click(self) -> ffi.CData:
         assert self.qtile is not None
         view = self.qw_cursor.view
 
         if view != ffi.NULL:
             win = self.qtile.windows_map.get(view.wid)
+            if win is None:
+                return
 
-            if win is not None and self.qtile.config.bring_front_click is True:
+            hook.fire("client_focus_by_click", win)
+
+            if self.qtile.config.bring_front_click is True:
                 win.bring_to_front()
             elif self.qtile.config.bring_front_click == "floating_only":
                 if isinstance(win, base.Window) and win.floating:
@@ -508,16 +565,17 @@ class Core(base.Core):
                 if win.screen is not self.qtile.current_screen:
                     self.qtile.focus_screen(win.screen.index, warp=False)
                 win.focus(False)
-            elif isinstance(win, base.Window):
+            elif isinstance(win, Window):
                 if win.group and win.group.screen is not self.qtile.current_screen:
                     self.qtile.focus_screen(win.group.screen.index, warp=False)
                 self.qtile.current_group.focus(win, False)
-
+                win._ungrab_click()
         else:
             screen = self.qtile.find_screen(
                 int(self.qw_cursor.cursor.x), int(self.qw_cursor.cursor.y)
             )
             if screen:
+                self._grab_click_on_current_window()
                 self.qtile.focus_screen(screen.index, warp=False)
 
         return view
@@ -540,7 +598,7 @@ class Core(base.Core):
             if motion and self.qtile.config.follow_mouse_focus is True:
                 if isinstance(win, Static):
                     self.qtile.focus_screen(win.screen.index, False)
-                elif win is not None:
+                elif isinstance(win, base.Window):
                     if win.group and win.group.current_window != win:
                         win.group.focus(win, False)
                     if (
@@ -556,9 +614,8 @@ class Core(base.Core):
         """Handle view urgency notification"""
         assert self.qtile is not None
         wid = view.wid
-        win = self.qtile.windows_map.get(wid)
-
-        if win:
+        win = self.qtile.lookup_client(wid)
+        if win is not None:
             win.activate_by_config()
 
     def finalize(self) -> None:
@@ -568,7 +625,9 @@ class Core(base.Core):
     def display_name(self) -> str:
         return ffi.string(self.qw.socket).decode()
 
-    def create_internal(self, x: int, y: int, width: int, height: int) -> base.Internal:
+    def create_internal(
+        self, x: int, y: int, width: int, height: int, depth: int = 32
+    ) -> base.Internal:
         ptr = lib.qw_server_internal_view_new(self.qw, x, y, width, height)
         if not ptr:
             raise RuntimeError("failed creating internal view")
@@ -585,11 +644,17 @@ class Core(base.Core):
             serial_str = (
                 ffi.string(wlr_output.serial).decode() if wlr_output.serial != ffi.NULL else None
             )
-            name_str = (
+            port_str = (
                 ffi.string(wlr_output.name).decode() if wlr_output.name != ffi.NULL else None
             )
+            make_str = (
+                ffi.string(wlr_output.make).decode() if wlr_output.make != ffi.NULL else None
+            )
+            model_str = (
+                ffi.string(wlr_output.model).decode() if wlr_output.model != ffi.NULL else None
+            )
             rect = ScreenRect(x, y, width, height)
-            outputs.append(Output(name_str, serial_str, rect))
+            outputs.append(Output(port_str, make_str, model_str, serial_str, rect))
 
         lib.qw_server_loop_output_dims(self.qw, loop)
 
@@ -625,9 +690,9 @@ class Core(base.Core):
     def grab_button(self, mouse: config.Mouse) -> int:
         return translate_masks(mouse.modifiers)
 
-    def warp_pointer(self, x: int, y: int) -> None:
+    def warp_pointer(self, x: int, y: int, motion: bool = False) -> None:
         """Warp the pointer to the coordinates in relative to the output layout"""
-        lib.qw_cursor_warp_cursor(self.qw_cursor, x, y)
+        lib.qw_cursor_warp_cursor(self.qw_cursor, x, y, motion)
 
     @contextlib.contextmanager
     def masked(self) -> Generator:
@@ -661,6 +726,8 @@ class Core(base.Core):
     def _poll(self) -> None:
         lib.qw_server_poll(self.qw)
 
+    @expose_command()
+    @allow_when_locked
     def flush(self) -> None:
         self._poll()
 
@@ -800,6 +867,7 @@ class Core(base.Core):
 
             node = {
                 "name": ffi.string(info.name).decode(),
+                "id": node_id,
                 "enabled": bool(info.enabled),
                 "x": info.x,
                 "y": info.y,
@@ -872,6 +940,21 @@ class Core(base.Core):
             lib.qw_server_set_inhibited(self.qw, value)
             self._inhibited = value
             hook.fire("idle_inhibitor_change", value)
+
+    @expose_command
+    def idle_notify_activity(self) -> None:
+        lib.qw_server_idle_notify_activity(self.qw)
+
+    def fake_click(self) -> None:
+        lib.qw_cursor_fake_click(self.qw_cursor)
+
+    def add_dummy_input_devices(self) -> None:
+        lib.qw_server_add_dummy_input_devices(self.qw)
+
+    @expose_command
+    def test_destroy_output(self, index: int) -> None:
+        """Destroy the nth output at runtime. Only available in an active test."""
+        lib.qw_server_test_destroy_output(self.qw, index)
 
 
 class Painter:

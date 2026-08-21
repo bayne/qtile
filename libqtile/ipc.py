@@ -5,8 +5,6 @@ run the same Python version, and that clients must be trusted (as
 un-marshalling untrusted data can result in arbitrary code execution).
 """
 
-from __future__ import annotations
-
 import asyncio
 import fcntl
 import json
@@ -14,9 +12,8 @@ import marshal
 import os.path
 import socket
 import struct
-from typing import Any
+from typing import Any, Self
 
-from libqtile import hook
 from libqtile.log_utils import logger
 from libqtile.utils import get_cache_dir
 
@@ -170,7 +167,7 @@ class Client:
             writer.write_eof()
 
             read_data = await asyncio.wait_for(reader.read(), timeout=10)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise IPCError("Server not responding")
         finally:
             # see the note in Server._server_callback()
@@ -188,24 +185,17 @@ class Server:
         self.handler = handler
         self.server = None  # type: asyncio.AbstractServer | None
 
-        # Use a flag to indicate if session is locked
-        self.locked = asyncio.Event()
-        hook.subscribe.locked(self.lock)
-        hook.subscribe.unlocked(self.unlock)
-
         if os.path.exists(socket_path):
             os.unlink(socket_path)
 
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
         flags = fcntl.fcntl(self.sock.fileno(), fcntl.F_GETFD)
         fcntl.fcntl(self.sock.fileno(), fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
-        self.sock.bind(self.socket_path)
-
-    def lock(self):
-        self.locked.set()
-
-    def unlock(self):
-        self.locked.clear()
+        old_umask = os.umask(0o177)
+        try:
+            self.sock.bind(self.socket_path)
+        finally:
+            os.umask(old_umask)
 
     async def _server_callback(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -224,11 +214,7 @@ class Server:
         except IPCError:
             logger.warning("Invalid data received, closing connection")
         else:
-            # Don't handle requests when session is locked
-            if self.locked.is_set():
-                rep = (1, {"error": "Session locked."})
-            else:
-                rep = self.handler(req)
+            rep = self.handler(req)
 
             result = _IPC.pack(rep, is_json=is_json)
 
@@ -240,7 +226,7 @@ class Server:
             writer.close()
             await writer.wait_closed()
 
-    async def __aenter__(self) -> Server:
+    async def __aenter__(self) -> Self:
         """Start and return the server"""
         await self.start()
         return self

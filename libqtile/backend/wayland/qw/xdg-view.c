@@ -51,6 +51,10 @@ static void qw_xdg_view_do_focus(struct qw_xdg_view *xdg_view, struct wlr_surfac
         return;
     }
 
+    if (server->exclusive_layer != NULL) {
+        return;
+    }
+
     if (prev_surface == surface) {
         return;
     }
@@ -169,6 +173,9 @@ static void qw_xdg_view_handle_commit(struct wl_listener *listener, void *data) 
         // View under the cursor may have changed
         qw_cursor_update_pointer_focus(xdg_view->base.server->cursor);
     }
+    // Every time a commit happens, opacity is reset
+    // Together, we can stop this
+    qw_view_set_opacity(&xdg_view->base, xdg_view->base.opacity);
 }
 
 // Clip the xdg_view's scene tree if needed
@@ -195,6 +202,16 @@ static void qw_xdg_view_clip(struct qw_xdg_view *xdg_view) {
 
     // Apply clipping to subsurface tree
     wlr_scene_subsurface_tree_set_clip(&xdg_view->scene_tree->node, &clip);
+}
+
+void dump_surface_outputs(void *self) {
+    struct qw_xdg_view *xdg_view = (struct qw_xdg_view *)self;
+    struct wlr_surface *surface = xdg_view->xdg_toplevel->base->surface;
+    struct wlr_surface_output *so;
+
+    wl_list_for_each(so, &surface->current_outputs, link) {
+        wlr_log(WLR_ERROR, "current_output=%s", so->output->name);
+    }
 }
 
 // Place the xdg_view at given position and size with border and stacking info
@@ -230,16 +247,15 @@ static void qw_xdg_view_place(void *self, int x, int y, int width, int height,
         wlr_xdg_toplevel_set_size(xdg_view->xdg_toplevel, width, height);
         qw_xdg_view_clip(xdg_view);
 
-        // Resize the foreign toplevel output tracking buffer
-        qw_view_resize_ftl_output_tracking_buffer(&xdg_view->base, width, height);
+        qw_view_update_ftl_outputs(&xdg_view->base, xdg_view->xdg_toplevel->base->surface);
     }
 
     // Paint borders around the view with given border colors and width
     qw_view_paint_borders((struct qw_view *)xdg_view, borders, border_count);
 
-    // Raise view to front if requested
+    // Raise view if requested
     if (above != 0) {
-        qw_view_reparent(&xdg_view->base, LAYER_BRINGTOFRONT);
+        qw_view_raise_to_top(&xdg_view->base);
     }
 
     // View under the cursor may have changed
@@ -660,7 +676,6 @@ void qw_server_xdg_view_new(struct qw_server *server, struct wlr_xdg_toplevel *x
     // Create a scene tree node for this view inside the main layout tree
     xdg_view->base.content_tree = wlr_scene_tree_create(server->scene_windows_layers[LAYER_LAYOUT]);
     xdg_view->base.content_tree->node.data = xdg_view;
-    xdg_view->base.layer = LAYER_LAYOUT;
 
     // If the protocol version supports WM capabilities, set maximize/fullscreen/minimize
     if (wl_resource_get_version(xdg_view->xdg_toplevel->resource) >=

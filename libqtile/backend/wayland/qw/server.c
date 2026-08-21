@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <wlr/backend/libinput.h>
 #include <wlr/backend/session.h>
+#include <wlr/interfaces/wlr_keyboard.h>
+#include <wlr/interfaces/wlr_pointer.h>
+#include <wlr/types/wlr_input_device.h>
 #include <wlr/types/wlr_output_management_v1.h>
 #include <wlr/types/wlr_pointer_constraints_v1.h>
 #include <wlr/types/wlr_relative_pointer_v1.h>
@@ -48,9 +51,18 @@ void qw_server_poll(struct qw_server *server) {
     wl_display_flush_clients(server->display);
 }
 
+static void qw_server_destroy_dummy_input_devices(struct qw_server *server) {
+    if (server->dummy_keyboard != NULL) {
+        wlr_keyboard_finish(server->dummy_keyboard);
+        free(server->dummy_keyboard);
+        server->dummy_keyboard = NULL;
+    }
+}
+
 // Cleanup routine to destroy the compositor and free resources.
 void qw_server_finalize(struct qw_server *server) {
     // TODO: what else to finalize?
+    qw_server_destroy_dummy_input_devices(server);
     wl_list_remove(&server->new_input.link);
     wl_list_remove(&server->new_output.link);
     wl_list_remove(&server->output_layout_change.link);
@@ -264,7 +276,6 @@ static void qw_server_output_manager_reconfigure(struct qw_server *server,
     wlr_output_configuration_v1_destroy(config);
     if (apply) {
         qw_cursor_configure_xcursor(server->cursor);
-        qw_server_handle_output_layout_change(&server->output_layout_change, NULL);
     }
 }
 
@@ -466,18 +477,21 @@ static void qw_server_handle_new_xwayland_surface(struct wl_listener *listener, 
     }
 }
 
-const char *qw_server_xwayland_display_name(struct qw_server *server) {
-    return server->xwayland->display_name;
-}
-#else
-const char *qw_server_xwayland_display_name(struct qw_server *server) { return NULL; }
-#endif
-
 static void qw_server_handle_xwayland_ready(struct wl_listener *listener, void *data) {
     UNUSED(data);
     struct qw_server *server = wl_container_of(listener, server, xwayland_ready);
     qw_xwayland_atoms_init(server->xwayland, server->xwayland_atoms);
 }
+
+const char *qw_server_xwayland_display_name(struct qw_server *server) {
+    return server->xwayland->display_name;
+}
+#else
+const char *qw_server_xwayland_display_name(struct qw_server *server) {
+    UNUSED(server);
+    return NULL;
+}
+#endif
 
 // Return the view at the given layout coordinates, if any.
 // Also fills out surface and surface-local coords if found.
@@ -773,6 +787,7 @@ struct qw_server *qw_server_create() {
     wlr_export_dmabuf_manager_v1_create(server->display);
     wlr_screencopy_manager_v1_create(server->display);
     wlr_data_control_manager_v1_create(server->display);
+    wlr_ext_data_control_manager_v1_create(server->display, 1);
     wlr_primary_selection_v1_device_manager_create(server->display);
     wlr_viewporter_create(server->display);
     wlr_single_pixel_buffer_manager_v1_create(server->display);
@@ -1152,4 +1167,80 @@ bool qw_server_inhibitor_surface_visible(struct qw_idle_inhibitor *inhibitor,
     }
 
     return false;
+}
+
+struct qw_view *qw_server_active_view(struct qw_server *server) {
+    struct wlr_surface *focused = server->seat->keyboard_state.focused_surface;
+    if (focused == NULL) {
+        return NULL;
+    }
+
+    struct wlr_xdg_toplevel *xdg_toplevel = wlr_xdg_toplevel_try_from_wlr_surface(focused);
+    if (xdg_toplevel != NULL) {
+
+        return xdg_toplevel->base->data;
+    }
+
+#if WLR_HAS_XWAYLAND
+    struct wlr_xwayland_surface *xwayland_surface =
+        wlr_xwayland_surface_try_from_wlr_surface(focused);
+    if (xwayland_surface != NULL) {
+        return xwayland_surface->data;
+    }
+#endif
+
+    return NULL;
+}
+
+static void qw_server_add_dummy_keyboard(struct qw_server *server) {
+    struct wlr_seat *seat = server->seat;
+    struct wlr_keyboard *kbd = calloc(1, sizeof(struct wlr_keyboard));
+    if (!kbd)
+        return;
+
+    // NULL impl is fine for a dummy — no real hardware to talk to
+    wlr_keyboard_init(kbd, NULL, "dummy-keyboard");
+
+    struct xkb_context *ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    struct xkb_keymap *keymap = xkb_keymap_new_from_names(ctx, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
+
+    wlr_keyboard_set_keymap(kbd, keymap);
+    xkb_keymap_unref(keymap);
+    xkb_context_unref(ctx);
+
+    wlr_seat_set_keyboard(seat, kbd);
+
+    server->dummy_keyboard = kbd;
+}
+
+void qw_server_add_dummy_input_devices(struct qw_server *server) {
+    if (server->dummy_keyboard != NULL) {
+        return;
+    }
+
+    qw_server_add_dummy_keyboard(server);
+
+    // We don't create a dummy pointer but we pretend there is one available
+    uint32_t caps = WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD;
+    wlr_seat_set_capabilities(server->seat, caps);
+}
+
+void qw_server_test_destroy_output(struct qw_server *server, int index) {
+    // Destroying an output out from under a live client is only meaningful
+    // (and only safe to expose) in the test harness.
+    if (getenv("PYTEST_CURRENT_TEST") == NULL) {
+        wlr_log(WLR_ERROR, "qw_server_test_destroy_output is a test-only hook");
+        return;
+    }
+
+    struct qw_output *output;
+    int i = 0;
+    wl_list_for_each(output, &server->outputs, link) {
+        if (i == index) {
+            wlr_output_destroy(output->wlr_output);
+            return;
+        }
+        i++;
+    }
+    wlr_log(WLR_ERROR, "qw_server_test_destroy_output: no output at index %d", index);
 }

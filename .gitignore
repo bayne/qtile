@@ -70,3 +70,6 @@ config.py
 
 # dynamically built files for wayland backend build
 libconfig.mk
+
+# wayland-clients for testing
+test/wayland_clients/bin

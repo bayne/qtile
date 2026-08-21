@@ -1,9 +1,7 @@
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import os
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Iterator
 
 import xcffib
 import xcffib.randr
@@ -14,16 +12,13 @@ from xcffib.xproto import EventMask
 
 from libqtile import config, hook, utils
 from libqtile.backend import base
-from libqtile.backend.base.core import Output
 from libqtile.backend.base.idle_inhibit import IdleInhibitorManager, Inhibitor
 from libqtile.backend.x11 import window, xcbq
 from libqtile.backend.x11.idle_notify import IdleNotifier
 from libqtile.backend.x11.xkeysyms import keysyms
+from libqtile.command.base import expose_command
 from libqtile.log_utils import logger
 from libqtile.utils import QtileError
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
 
 EVENT_TO_HANDLER = {
     xcffib.xproto.ButtonPressEvent: "handle_ButtonPress",
@@ -44,6 +39,9 @@ EVENT_TO_HANDLER = {
     xcffib.xproto.SelectionNotifyEvent: "handle_SelectionNotify",
     xcffib.xproto.UnmapNotifyEvent: "handle_UnmapNotify",
 }
+
+if hasattr(xcffib, "xfixes"):
+    EVENT_TO_HANDLER[xcffib.xfixes.SelectionNotifyEvent] = "handle_SelectionNotify"
 
 _IGNORED_EVENTS = {
     xcffib.xproto.CreateNotifyEvent,
@@ -69,6 +67,8 @@ class ExistingWMException(Exception):
 
 
 class Core(base.Core):
+    idle_notifier: IdleNotifier
+
     def __init__(self, display_name: str | None = None) -> None:
         """Setup the X11 core backend
 
@@ -168,7 +168,7 @@ class Core(base.Core):
         # The last time we were handling a MotionNotify event
         self._last_motion_time = 0
 
-        self.last_focused: base.Window | None = None
+        self.last_focused: window.Window | None = None
 
         self.idle_inhibitor_manager: IdleInhibitorManager[Inhibitor] = IdleInhibitorManager(self)
         self.idle_notifier = IdleNotifier(self)
@@ -187,7 +187,7 @@ class Core(base.Core):
             delattr(self, "qtile")
         self.conn.finalize()
 
-    def get_output_info(self) -> list[Output]:
+    def get_output_info(self) -> list[config.Output]:
         return self.conn.pseudoscreens
 
     @property
@@ -223,6 +223,8 @@ class Core(base.Core):
         """Assign windows to groups"""
         assert self.qtile is not None
 
+        self.wmname = getattr(self.qtile.config, "wmname", "qtile")
+
         # Ensure that properties are initialised at startup
         self.update_client_lists()
 
@@ -232,7 +234,7 @@ class Core(base.Core):
         # regardless of whether the screen had actually changed. so, we do
         # that here, since we had tests that enforced that behavior so
         # maybe someone depended on it.
-        hook.fire("screen_change", None)
+        self.fire_screen_change(None)
 
         if not initial:
             # We are just reloading config
@@ -613,12 +615,22 @@ class Core(base.Core):
             i._reset_mask()
 
     def create_internal(
-        self, x: int, y: int, width: int, height: int, desired_depth: int | None = 32
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        depth: int = 32,
     ) -> base.Internal:
         assert self.qtile is not None
 
-        win = self.conn.create_window(x, y, width, height, desired_depth)
-        internal = window.Internal(win, self.qtile, desired_depth)
+        # Try to use a 32-bit depth to allow for transparent colors in
+        # backgrounds. If the Screen doesn't support 32-bit visuals, the code
+        # in create_window() -> _get_depth_and_visual() will fall back to an
+        # appropriate depth.
+        win = self.conn.create_window(x, y, width, height, desired_depth=depth)
+        internal = window.Internal(win, self.qtile, desired_depth=depth)
+
         internal.place(x, y, width, height, 0, None)
         self.qtile.manage(internal)
         return internal
@@ -809,19 +821,15 @@ class Core(base.Core):
                 # since the window is dead.
                 pass
             # Clear these atoms as per spec
-            win.window.conn.conn.core.DeleteProperty(
-                win.wid, win.window.conn.atoms["_NET_WM_STATE"]
-            )
-            win.window.conn.conn.core.DeleteProperty(
-                win.wid, win.window.conn.atoms["_NET_WM_DESKTOP"]
-            )
+            self.conn.conn.core.DeleteProperty(win.wid, self.conn.atoms["_NET_WM_STATE"])
+            self.conn.conn.core.DeleteProperty(win.wid, self.conn.atoms["_NET_WM_DESKTOP"])
         self.qtile.unmanage(event.window)
         self.update_client_lists()
         if self.qtile.current_window is None:
             self.conn.fixup_focus()
 
     def handle_ScreenChangeNotify(self, event) -> None:  # noqa: N802
-        hook.fire("screen_change", event)
+        self.fire_screen_change(event)
 
     def _fake_input(self, input_type, detail, x=0, y=0) -> None:
         self._xtest.FakeInput(
@@ -869,6 +877,18 @@ class Core(base.Core):
         d.state = modmasks
         self.handle_KeyPress(d, simulated=True)
 
+    def _grab_click_on_current_window(self) -> None:
+        """Grab button events on the current window.
+
+        Called before switching screens to ensure clicks on the now-unfocused
+        window will be intercepted to refocus it.
+        """
+        win = self.qtile.current_window
+        if win:
+            # In X11 backend, current_window is always an x11 _Window
+            assert isinstance(win, window._Window)
+            win._grab_click()
+
     def focus_by_click(self, e, window=None):
         """Bring a window to the front
 
@@ -881,6 +901,8 @@ class Core(base.Core):
         assert qtile is not None
 
         if window:
+            hook.fire("client_focus_by_click", window)
+
             if qtile.config.bring_front_click and (
                 qtile.config.bring_front_click != "floating_only"
                 or getattr(window, "floating", False)
@@ -891,6 +913,7 @@ class Core(base.Core):
                 if window.group.screen is not qtile.current_screen:
                     qtile.focus_screen(window.group.screen.index, warp=False)
                 qtile.current_group.focus(window, warp=False)
+                window._ungrab_click()
             except AttributeError:
                 # probably clicked an internal window
                 screen = qtile.find_screen(e.root_x, e.root_y)
@@ -901,8 +924,7 @@ class Core(base.Core):
             # clicked on root window
             screen = qtile.find_screen(e.root_x, e.root_y)
             if screen:
-                if qtile.current_window:
-                    qtile.current_window._grab_click()
+                self._grab_click_on_current_window()
                 qtile.focus_screen(screen.index, warp=False)
 
     def flush(self):
@@ -919,7 +941,7 @@ class Core(base.Core):
         """Get the keysym for a key from its name"""
         return keysyms[name.lower()]
 
-    def check_stacking(self, win: base.Window) -> None:
+    def check_stacking(self, win: window.Window) -> None:
         """Triggers restacking if a fullscreen window loses focus."""
         if win is self.last_focused:
             return
@@ -928,3 +950,7 @@ class Core(base.Core):
             self.last_focused.change_layer()
 
         self.last_focused = win
+
+    @expose_command
+    def idle_notify_activity(self) -> None:
+        self._fake_input(xcbq.XCB_MOTION_NOTIFY, 0, 0, 0)

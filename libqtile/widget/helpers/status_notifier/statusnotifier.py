@@ -105,7 +105,7 @@ class StatusNotifierItem:  # noqa: E303
     def __init__(self, bus, service, path=None, icon_theme=None):
         self.bus = bus
         self.service = service
-        self.surfaces = {}
+        self.images = {}
         self._pixmaps = {}
         self._icon = None
         self._overlay_icon = None
@@ -204,7 +204,7 @@ class StatusNotifierItem:  # noqa: E303
 
         if not self.has_icons:
             logger.warning(
-                "Cannot find icon in current theme and no icon provided by StatusNotifierItem."
+                f"Cannot find icon: {self.last_icon_name!r} in current theme and no icon provided by StatusNotifierItem."
             )
             # No "local" icon and no application-provided icons are available.
             # The "local" icon may be updated at a later time, so "_update_local_icon"
@@ -331,7 +331,17 @@ class StatusNotifierItem:  # noqa: E303
         pixmap = getattr(self.item, method, None)
         if pixmap is None:
             return
-        icon_pixmap = await pixmap()
+
+        try:
+            icon_pixmap = await pixmap()
+        except DBusError as err:
+            logger.debug(
+                "Failed to retrieve %s pixmap from %s: %s",
+                icon_name,
+                self.service,
+                err,
+            )
+            return
 
         # Items can present multiple pixmaps for different
         # size of icons. We want to keep these so we can pick
@@ -339,9 +349,10 @@ class StatusNotifierItem:  # noqa: E303
         # Also, the bytes sent for the pixmap are big-endian
         # but Cairo expects little-endian so we need to
         # reorder them.
-        self._pixmaps[icon_name] = {
-            size: self._reorder_bytes(icon_bytes) for size, _, icon_bytes in icon_pixmap
-        }
+        if icon_pixmap:
+            self._pixmaps[icon_name] = {
+                size: self._reorder_bytes(icon_bytes) for size, _, icon_bytes in icon_pixmap
+            }
 
     def _reorder_bytes(self, icon_bytes):
         """
@@ -349,8 +360,12 @@ class StatusNotifierItem:  # noqa: E303
         4 bytes (representing one RGBA pixel).
         """
         arr = bytearray(icon_bytes)
-        for i in range(0, len(arr), 4):
-            arr[i : i + 4] = arr[i : i + 4][::-1]
+        arr[0::4], arr[1::4], arr[2::4], arr[3::4] = (
+            arr[3::4],
+            arr[2::4],
+            arr[1::4],
+            arr[0::4],
+        )
 
         return arr
 
@@ -361,7 +376,7 @@ class StatusNotifierItem:  # noqa: E303
             self.on_icon_changed(self)
 
     def _invalidate_icons(self):
-        self.surfaces = {}
+        self.images = {}
 
     def _get_sizes(self):
         """Returns list of available icon sizes."""
@@ -370,19 +385,19 @@ class StatusNotifierItem:  # noqa: E303
 
         return sorted([size for size in self._pixmaps["Icon"]])
 
-    def _get_surfaces(self, size):
+    def _get_images(self, size):
         """
         Creates a Cairo ImageSurface for each available icon
         for the given size.
         """
-        raw_surfaces = {}
+        raw_images = {}
         for icon in self._pixmaps:
             if size in self._pixmaps[icon]:
-                srf = cairocffi.ImageSurface.create_for_data(
+                img = Img.from_data(
                     self._pixmaps[icon][size], cairocffi.FORMAT_ARGB32, size, size
                 )
-                raw_surfaces[icon] = srf
-        return raw_surfaces
+                raw_images[icon] = img
+        return raw_images
 
     def get_icon(self, size):
         """
@@ -391,15 +406,15 @@ class StatusNotifierItem:  # noqa: E303
         Will pick the appropriate icon and add any overlay as required.
         """
         # Use existing icon if generated previously
-        if size in self.surfaces:
-            return self.surfaces[size]
+        if size in self.images:
+            return self.images[size]
 
-        # Create a blank ImageSurface to hold the icon
-        icon = cairocffi.ImageSurface(cairocffi.FORMAT_ARGB32, size, size)
+        # Create a blank image to hold the icon
+        icon = Img.blank(cairocffi.FORMAT_ARGB32, size, size)
 
         if self.icon:
-            base_icon = self.icon.surface
-            icon_size = base_icon.get_width()
+            base_icon = self.icon
+            icon_size = base_icon.width
             overlay = None
 
         else:
@@ -421,27 +436,23 @@ class StatusNotifierItem:  # noqa: E303
             # we just take the largest icon
             icon_size = sizes[0] if sizes else all_sizes[-1]
 
-            srfs = self._get_surfaces(icon_size)
+            imgs = self._get_images(icon_size)
 
             # TODO: This shouldn't happen...
-            if not srfs:
+            if not imgs:
                 return icon
 
             # TODO: Check spec for when to use "attention"
-            base_icon = srfs.get("Attention", srfs["Icon"])
-            overlay = srfs.get("Overlay", None)
+            base_icon = imgs.get("Attention", imgs["Icon"])
+            overlay = imgs.get("Overlay", None)
 
-        with cairocffi.Context(icon) as ctx:
-            scale = size / icon_size
-            ctx.scale(scale, scale)
-            ctx.set_source_surface(base_icon)
-            ctx.paint()
-            if overlay:
-                ctx.set_source_surface(overlay)
-                ctx.paint()
+        if overlay:
+            icon = base_icon.paste(overlay)
+        else:
+            icon = base_icon
 
-        # Store the surface for next time
-        self.surfaces[size] = icon
+        # Store the image for next time
+        self.images[size] = icon
 
         return icon
 
@@ -451,7 +462,10 @@ class StatusNotifierItem:  # noqa: E303
 
     async def _activate(self):
         # Call Activate method and pass window position hints
-        await self.item.call_activate(0, 0)
+        try:
+            await self.item.call_activate(0, 0)
+        except DBusError as err:
+            logger.debug("Failed to activate status notifier item %s: %s", self.service, err)
 
     @property
     def has_icons(self):
@@ -555,6 +569,8 @@ class StatusNotifierWatcher(ServiceInterface):  # noqa: E303
     def RegisterStatusNotifierHost(self, service: "s"):  # type: ignore  # noqa: F821, N802
         if service not in self._hosts:
             self._hosts.append(service)
+            if self.on_host_added is not None:
+                self.on_host_added(service)
             self.StatusNotifierHostRegistered(service)
 
     @dbus_property(access=PropertyAccess.READ)
@@ -583,8 +599,6 @@ class StatusNotifierWatcher(ServiceInterface):  # noqa: E303
 
     @signal()
     def StatusNotifierHostRegistered(self, service) -> "s":  # type: ignore  # noqa: F821, N802
-        if self.on_host_added is not None:
-            self.on_host_added(service)
         return service
 
     @signal()
@@ -653,7 +667,12 @@ class StatusNotifierHost:  # noqa: E303
             self.started = True
 
     def item_added(self, item, service, future):
-        success = future.result()
+        try:
+            success = future.result()
+        except Exception as err:
+            logger.warning("Error starting StatusNotifierItem for %s: %s", service, err)
+            success = False
+
         # If StatusNotifierItem object was created successfully then we
         # add to our list and redraw the bar
         if success:
@@ -664,10 +683,8 @@ class StatusNotifierHost:  # noqa: E303
         # It's an invalid item so let's remove it from the watchers
         else:
             for w in self.watchers:
-                try:
+                with suppress(ValueError):
                     w._items.remove(service)
-                except ValueError:
-                    pass
 
     def add_item(self, service, path=None):
         """

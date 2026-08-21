@@ -1,18 +1,13 @@
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import inspect
-from typing import TYPE_CHECKING
+from collections.abc import Callable
 
 from libqtile import backend, utils
 from libqtile.log_utils import logger
 from libqtile.resources.sleep import inhibitor
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    HookHandler = Callable[[Callable], Callable]
+HookHandler = Callable[[Callable], Callable]
 
 subscriptions = {}  # type: dict
 
@@ -654,6 +649,28 @@ hooks: list[Hook] = [
             @hook.subscribe.client_mouse_enter
             def client_mouse_enter(client):
                 send_notification("qtile", f"Mouse has entered {client.name}")
+
+        """,
+    ),
+    Hook(
+        "client_focus_by_click",
+        """
+        Called when a mouse button is clicked on an inactive client
+
+        **Arguments**
+
+            * ``Window`` of window clicked
+
+        Example:
+
+        .. code:: python
+
+            from libqtile import hook
+            from libqtile.utils import send_notification
+
+            @hook.subscribe.client_focus_by_click
+            def client_focus_by_click(client):
+                send_notification("qtile", f"Mouse was clicked on {client.name}")
 
         """,
     ),

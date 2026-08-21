@@ -34,6 +34,32 @@ static void qw_output_handle_destroy(struct wl_listener *listener, void *data) {
     wl_list_remove(&output->request_state.link);
     wl_list_remove(&output->destroy.link);
     wl_list_remove(&output->link);
+
+    /* Clean up non-scene dynamic memory if present */
+    if (output->background.type == QW_BACKGROUND_WALLPAPER && output->background.wallpaper) {
+        if (output->background.wallpaper->surface) {
+            cairo_surface_destroy(output->background.wallpaper->surface);
+        }
+        free(output->background.wallpaper);
+        output->background.wallpaper = NULL;
+    }
+
+    /*
+    null out the output pointer on all layer views that belong to this output
+    before freeing it. Layer surfaces may be unmapped after output removal (e.g.
+    if the client destroys the view once the output has gone) and qw_layer_view_handle_unmap
+    will check this before calling qw_output_arrange_layers.
+    */
+    for (int i = 0; i < 4; i++) {
+        struct qw_layer_view *layer_view;
+        wl_list_for_each(layer_view, &output->layers[i], link) { layer_view->output = NULL; }
+    }
+
+    /* wlroots automatically destroys wlr_scene_output and attached scene nodes
+     * when wlr_output is destroyed. Simply clear the pointer. */
+    output->scene = NULL;
+    output->fullscreen_background = NULL;
+
     free(output);
 }
 

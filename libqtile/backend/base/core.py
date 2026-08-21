@@ -1,35 +1,30 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import typing
 from abc import ABCMeta, abstractmethod
-from dataclasses import dataclass
+from typing import Any
 
-from libqtile import hook
-from libqtile.command.base import CommandObject, expose_command
-from libqtile.config import Screen, ScreenRect
+from libqtile import config, hook
+from libqtile.backend.base.idle_inhibit import IdleInhibitorManager
+from libqtile.backend.base.idle_notify import IdleNotifier
+from libqtile.command.base import CommandObject, ItemT, expose_command
+from libqtile.config import Screen
+from libqtile.group import _Group
 
 if typing.TYPE_CHECKING:
-    from typing import Any
-
-    from libqtile import config
     from libqtile.backend.base import Internal
-    from libqtile.command.base import ItemT
     from libqtile.core.manager import Qtile
-    from libqtile.group import _Group
-
-
-@dataclass
-class Output:
-    name: str | None
-    serial: str | None
-    rect: ScreenRect
 
 
 class Core(CommandObject, metaclass=ABCMeta):
     painter: Any
     supports_restarting: bool = True
     qtile: Qtile
+    idle_inhibitor_manager: IdleInhibitorManager[Any]
+    idle_notifier: IdleNotifier
+    screen_change_timer: asyncio.TimerHandle | None = None
 
     @property
     @abstractmethod
@@ -63,7 +58,7 @@ class Core(CommandObject, metaclass=ABCMeta):
         """Set the current desktops of the window manager"""
 
     @abstractmethod
-    def get_output_info(self) -> list[Output]:
+    def get_output_info(self) -> list[config.Output]:
         """Get the output information"""
 
     @abstractmethod
@@ -104,12 +99,40 @@ class Core(CommandObject, metaclass=ABCMeta):
         """A context manager to suppress window events while operating on many windows."""
         yield
 
-    def create_internal(self, x: int, y: int, width: int, height: int) -> Internal:
+    def create_internal(
+        self, x: int, y: int, width: int, height: int, depth: int = 32
+    ) -> Internal:
         """Create an internal window controlled by Qtile."""
         raise NotImplementedError  # Only error when called, not when instantiating class
 
     def flush(self) -> None:
         """If needed, flush the backend's event queue."""
+
+    def fire_screen_change(self, event: Any = None) -> None:
+        if self.screen_change_timer is not None:
+            self.screen_change_timer.cancel()
+            self.screen_change_timer = None
+
+        # the wayland backend generates a screen change event when the initial
+        # output is created in Core.__init__(), before the Qtile instance is
+        # attached to the core; there is nothing to debounce yet, so fire the
+        # hook directly
+        qtile = getattr(self, "qtile", None)
+        if qtile is None:
+            hook.fire("screen_change", event)
+            return
+
+        timeout = qtile.config.screen_change_debounce_timeout
+        if timeout > 0:
+            self.screen_change_timer = qtile.call_later(
+                timeout, self.debounced_screen_change, event
+            )
+        else:
+            hook.fire("screen_change", event)
+
+    def debounced_screen_change(self, event: Any) -> None:
+        self.screen_change_timer = None
+        hook.fire("screen_change", event)
 
     def simulate_keypress(self, modifiers: list[str], key: str) -> None:
         """Simulate a keypress with given modifiers"""

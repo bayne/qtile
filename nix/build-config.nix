@@ -19,8 +19,13 @@ let
     }
     {
       varname = "XCBCURSOR";
-      pkg = pkgs.xorg.xcbutilcursor;
+      pkg = pkgs.libxcb-cursor;
       libname = "libxcb-cursor.so";
+    }
+    {
+      varname = "FONTCONFIG";
+      pkg = pkgs.fontconfig;
+      libname = "libfontconfig.so";
     }
   ];
 
@@ -43,8 +48,8 @@ let
     }
     {
       varname = "WLROOTS";
-      pkg = pkgs.wlroots_0_19;
-      header-dir = "wlroots-0.19";
+      pkg = pkgs.wlroots_0_20;
+      header-dir = "wlroots-0.20";
     }
   ];
 

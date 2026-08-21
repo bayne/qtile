@@ -2,17 +2,13 @@
 A command shell for Qtile.
 """
 
-from __future__ import annotations
-
-import fcntl
 import inspect
 import pprint
 import re
-import struct
+import shutil
 import sys
-import termios
 from importlib import import_module
-from typing import TYPE_CHECKING
+from typing import Any
 
 from libqtile.command.client import CommandClient
 from libqtile.command.interface import (
@@ -21,10 +17,6 @@ from libqtile.command.interface import (
     CommandInterface,
     format_selectors,
 )
-
-if TYPE_CHECKING:
-    from typing import Any
-
 
 # From: https://stackoverflow.com/a/64333329/3087339
 # Matches commas that are not enclosed in quote marks
@@ -51,14 +43,11 @@ def tidy_str(text):
     return text.strip(""" "'\t\r\n""")
 
 
-def terminal_width():
-    width = None
+def terminal_width() -> int:
     try:
-        cr = struct.unpack("hh", fcntl.ioctl(0, termios.TIOCGWINSZ, "1234"))
-        width = int(cr[1])
-    except (OSError, ImportError):
-        pass
-    return width or 80
+        return shutil.get_terminal_size(fallback=(80, 24)).columns
+    except (AttributeError, ValueError):
+        return 80
 
 
 class QSh:

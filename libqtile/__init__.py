@@ -4,7 +4,7 @@ import enum
 
 
 class _UndefinedCore:
-    name = None
+    name: str | None = None
 
 
 class _UndefinedQtile:
@@ -25,6 +25,7 @@ class DynamicLibraries(enum.Enum):
     PANGO = "pango-1.0"
     PANGOCAIRO = "pangocairo-1.0"
     XCBCURSOR = "xcb-cursor"
+    FONTCONFIG = "fontconfig"
 
 
 def find_library(key: DynamicLibraries) -> str | None:

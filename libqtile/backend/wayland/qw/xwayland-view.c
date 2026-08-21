@@ -36,6 +36,10 @@ static void qw_xwayland_view_do_focus(struct qw_xwayland_view *xwayland_view,
         return;
     }
 
+    if (server->exclusive_layer != NULL) {
+        return;
+    }
+
     if (prev_surface == surface) {
         return;
     }
@@ -113,7 +117,13 @@ static void static_view_handle_map(struct wl_listener *listener, void *data) {
     }
 
     if (wlr_xwayland_surface_override_redirect_wants_focus(xwayland_surface)) {
-        qw_xwayland_view_focus(static_view, true);
+        struct wlr_seat *seat = static_view->base.server->seat;
+        struct wlr_keyboard *keyboard = wlr_seat_get_keyboard(seat);
+        if (keyboard) {
+            wlr_seat_keyboard_notify_enter(seat, static_view->xwayland_surface->surface,
+                                           keyboard->keycodes, keyboard->num_keycodes,
+                                           &keyboard->modifiers);
+        }
     }
 }
 
@@ -263,12 +273,6 @@ static struct wlr_scene_node *qw_xwayland_view_get_tree_node(void *self) {
     return &xwayland_view->scene_tree->node;
 }
 
-// Bring the xwayland_view's content scene node to the front
-static void qw_xwayland_view_bring_to_front(void *self) {
-    struct qw_xwayland_view *xwayland_view = (struct qw_xwayland_view *)self;
-    wlr_scene_node_raise_to_top(&xwayland_view->base.content_tree->node);
-}
-
 // Clip the xwayland_view's scene tree if needed
 static void qw_xwayland_view_clip(struct qw_xwayland_view *xwayland_view) {
     // Only clip if scene_tree exists, node is disabled, and node is linked
@@ -336,16 +340,15 @@ static void qw_xwayland_view_place(void *self, int x, int y, int width, int heig
         wlr_xwayland_surface_configure(qw_xsurface, x, y, width, height);
         qw_xwayland_view_clip(xwayland_view);
 
-        // Resize the foreign toplevel output tracking buffer
-        qw_view_resize_ftl_output_tracking_buffer(&xwayland_view->base, width, height);
+        qw_view_update_ftl_outputs(&xwayland_view->base, xwayland_view->xwayland_surface->surface);
     }
 
     // Paint borders around the view with given border colors and width
     qw_view_paint_borders((struct qw_view *)xwayland_view, borders, border_count);
 
-    // Raise view to front if requested
+    // Raise view if requested
     if (above != 0) {
-        qw_xwayland_view_bring_to_front(self);
+        qw_view_raise_to_top(&xwayland_view->base);
     }
 
     // View under the cursor may have changed
@@ -907,7 +910,6 @@ void qw_server_xwayland_view_new(struct qw_server *server,
     xwayland_view->base.content_tree =
         wlr_scene_tree_create(server->scene_windows_layers[LAYER_LAYOUT]);
     xwayland_view->base.content_tree->node.data = xwayland_view;
-    xwayland_view->base.layer = LAYER_LAYOUT;
     xwayland_view->initial_commit = true;
 
     wl_signal_add(&xwayland_surface->events.destroy, &xwayland_view->destroy);

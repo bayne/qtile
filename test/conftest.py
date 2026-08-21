@@ -95,14 +95,6 @@ def manager(request, manager_nospawn):
 
 
 @pytest.fixture(scope="function")
-def manager_withlogs(request, manager_nospawn):
-    config = getattr(request, "param", BareConfig)
-
-    manager_nospawn.start(config, want_logs=True)
-    yield manager_nospawn
-
-
-@pytest.fixture(scope="function")
 def fake_window():
     """
     A fake window that can provide a fake drawer to test widgets.
@@ -115,7 +107,7 @@ def fake_window():
         window = _NestedWindow()
 
         def create_drawer(self, width, height):
-            return drawer.Drawer(None, self, width, height)
+            return drawer.Drawer(self, width, height)
 
     return FakeWindow()
 

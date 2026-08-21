@@ -36,12 +36,22 @@
           anyio
         ];
 
-        tests = {
-          wayland = pkgs.writeScriptBin "qtile-run-tests-wayland" ''
+        scripts = {
+          test-wayland = pkgs.writeScriptBin "qtile-run-tests-wayland" ''
             pytest -x --backend=wayland
           '';
-          x11 = pkgs.writeScriptBin "qtile-run-tests-x11" ''
+          test-x11 = pkgs.writeScriptBin "qtile-run-tests-x11" ''
             pytest -x --backend=x11
+          '';
+          build-docs = pkgs.writeScriptBin "qtile-run-build-docs" ''
+            PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+
+            if [[ -z "$PROJECT_ROOT" ]]; then
+                echo -e "$${BOLD}$${RED}Error: Not inside a Git repository.$${RESET}"
+                exit 1
+            fi
+
+            sphinx-build -M html $PROJECT_ROOT/docs $PROJECT_ROOT/_build
           '';
         };
 
@@ -82,12 +92,12 @@
         pkgs-wrapped = pkgs.lib.lists.flatten [
           common-python-deps
           common-system-deps
-          (builtins.attrValues tests)
+          (builtins.attrValues scripts)
         ];
       });
     in
     {
-      formatter = forAllSystems (pkgs: pkgs.nixfmt-rfc-style);
+      formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
 
       checks = forAllSystems (pkgs: pkgs.python3Packages.qtile.passthru.tests);
 

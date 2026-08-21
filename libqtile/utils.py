@@ -4,14 +4,13 @@ import asyncio
 import glob
 import importlib
 import os
-import traceback
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Coroutine, Sequence
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from random import randint
 from shutil import which
-from typing import TYPE_CHECKING
+from typing import Any, cast
 
 try:
     from dbus_fast import AuthError, Message, Variant
@@ -27,11 +26,6 @@ from libqtile.log_utils import logger
 
 ColorType = str | tuple[int, int, int] | tuple[int, int, int, float]
 ColorsType = ColorType | list[ColorType]
-if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
-    from typing import Any, TypeVar
-
-    T = TypeVar("T")
 
 try:
     VERSION = distribution("qtile").version
@@ -68,7 +62,7 @@ class QtileError(Exception):
     pass
 
 
-def lget(o: list[T], v: int) -> T | None:
+def lget[T](o: list[T], v: int) -> T | None:
     try:
         return o[v]
     except (IndexError, TypeError):
@@ -134,13 +128,14 @@ def has_transparency(colour: ColorsType) -> bool:
     return any(has_transparency(c) for c in colour)
 
 
-def remove_transparency(colour: ColorsType):  # type: ignore
+def remove_transparency(colour: ColorsType) -> ColorsType:
     """
     Returns a tuple of (r, g, b) with no alpha.
     """
     if isinstance(colour, str | tuple):
-        return tuple(x * 255.0 for x in rgb(colour)[:3])
-    return [remove_transparency(c) for c in colour]
+        r, g, b, _ = rgb(colour)
+        return (int(r * 255), int(g * 255), int(b * 255))
+    return [cast(ColorType, remove_transparency(c)) for c in colour]
 
 
 def is_valid_colors(color: ColorsType) -> bool:
@@ -225,10 +220,13 @@ def import_class(
         module = importlib.import_module(module_path, __package__)
         return getattr(module, class_name)
     except ImportError:
-        logger.exception("Unmet dependencies for '%s.%s':", module_path, class_name)
         if fallback:
-            logger.debug("%s", traceback.format_exc())
+            logger.error(
+                "Unmet dependencies for '%s.%s'. Using fallback.", module_path, class_name
+            )
             return fallback(module_path, class_name)
+
+        logger.exception("Unmet dependencies for '%s.%s':", module_path, class_name)
         raise
 
 
@@ -612,7 +610,8 @@ def remove_dbus_rules() -> None:
 
         # We need to manually close the socket until https://github.com/altdesktop/python-dbus-next/pull/148
         # gets merged. There's no error on multiple calls to 'close()'.
-        bus._sock.close()
+        if bus._sock is not None:
+            bus._sock.close()
 
 
 ASYNC_PIDS: set[int] = set()

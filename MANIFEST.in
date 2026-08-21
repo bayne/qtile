@@ -24,6 +24,7 @@ exclude Makefile
 exclude .readthedocs.yaml
 exclude .git-blame-ignore-revs
 exclude .clang-format
+exclude Dockerfile
 
 graft libqtile/resources
 graft libqtile/widget/helpers
@@ -35,6 +36,7 @@ prune bin
 prune docs
 prune scripts
 prune rpm
+prune test/wayland_clients/bin
 
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]

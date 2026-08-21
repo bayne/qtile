@@ -1,4 +1,5 @@
 import asyncio
+import time
 from multiprocessing import Value
 
 import pytest
@@ -483,9 +484,11 @@ def test_group_window_remove(manager_nospawn):
 class CallWindow:
     def __init__(self):
         self.window = ""
+        self.count = 0
 
     def __call__(self, window):
         self.window = window.name
+        self.count += 1
 
 
 @Retry(ignore_exceptions=(AssertionError))
@@ -557,6 +560,25 @@ def test_client_mouse_enter(manager_nospawn):
     manager_nospawn.test_window("Test Client")
     manager_nospawn.backend.fake_click(0, 0)
     assert_window(manager_nospawn, "Test Client")
+
+
+@pytest.mark.usefixtures("hook_fixture")
+def test_client_focus_by_click(manager_nospawn):
+    class ClientMouseClickConfig(BareConfig):
+        test = CallWindow()
+        hook.subscribe.client_focus_by_click(test)
+
+    manager_nospawn.start(ClientMouseClickConfig)
+    manager_nospawn.test_window("Test Client")
+
+    manager_nospawn.backend.fake_click(0, 0)
+    assert manager_nospawn.c.eval("self.config.test.window") == "Test Client"
+    assert manager_nospawn.c.eval("self.config.test.count") == "1"
+
+    # Clicking on the window again will not fire the hook
+    manager_nospawn.backend.fake_click(0, 0)
+    assert manager_nospawn.c.eval("self.config.test.window") == "Test Client"
+    assert manager_nospawn.c.eval("self.config.test.count") == "1"
 
 
 @pytest.mark.usefixtures("hook_fixture")
@@ -644,6 +666,34 @@ def test_net_wm_icon_change(manager_nospawn, backend_name):
     manager_nospawn.start(ClientNewConfig)
     manager_nospawn.test_window("Test Client")
     assert_window(manager_nospawn, "Test Client")
+
+
+@pytest.mark.usefixtures("hook_fixture")
+def test_screen_change_debounce(manager_nospawn):
+    @Retry(ignore_exceptions=(AssertionError))
+    def assert_inc_calls(num: int):
+        assert manager_nospawn.screen_change_calls.value == num
+
+    def inc_screen_change_calls(event):
+        manager_nospawn.screen_change_calls.value += 1
+
+    manager_nospawn.screen_change_calls = Value("i", 0)
+    hook.subscribe.screen_change(inc_screen_change_calls)
+
+    class DebounceConfig(BareConfig):
+        screen_change_debounce_timeout = 0.5
+
+    manager_nospawn.start(DebounceConfig)
+    assert_inc_calls(1)
+
+    # a burst of screen change events is coalesced into a single hook firing
+    for _ in range(3):
+        manager_nospawn.c.eval("self.core.fire_screen_change(None)")
+    assert_inc_calls(2)
+
+    # and no further firings straggle in afterwards
+    time.sleep(2)
+    assert manager_nospawn.screen_change_calls.value == 2
 
 
 @pytest.mark.usefixtures("hook_fixture")

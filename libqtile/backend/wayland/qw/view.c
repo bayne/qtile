@@ -3,7 +3,8 @@
 #include "server.h"
 #include "util.h"
 #include <stdlib.h>
-#include <wlr/util/log.h>
+#include <wayland-util.h>
+#include <wlr/types/wlr_scene.h>
 
 // Frees all border rectangles and their associated scene nodes of the view.
 // Checks if borders exist, then destroys each of the 4 border scene nodes per border set.
@@ -75,9 +76,20 @@ static struct wlr_surface *qw_view_get_surface_from_tree(struct wlr_scene_node *
     }
 }
 
+int qw_view_get_layer(struct qw_view *view) {
+    struct wlr_scene_node *layer_node = &view->content_tree->node.parent->node;
+
+    for (int i = 0; i < LAYER_END; i++) {
+        if (&view->server->scene_windows_layers[i]->node == layer_node) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
 void qw_view_reparent(struct qw_view *view, int layer) {
     wlr_scene_node_reparent(&view->content_tree->node, view->server->scene_windows_layers[layer]);
-    view->layer = layer;
 }
 
 void qw_view_raise_to_top(struct qw_view *view) {
@@ -102,13 +114,11 @@ void qw_view_move_up(struct qw_view *view) {
         return;
     }
 
-    wl_list_for_each(child, &view->server->scene_windows_layers[view->layer]->children, link) {
+    int layer = qw_view_get_layer(view);
+    wl_list_for_each(child, &view->server->scene_windows_layers[layer]->children, link) {
         if (child == &view->content_tree->node) {
             found_child = true;
         } else if (found_child) {
-            if (!child->enabled) {
-                continue;
-            }
             struct wlr_surface *other_surface = qw_view_get_surface_from_tree(child);
 
             if (other_surface == NULL) {
@@ -142,11 +152,8 @@ void qw_view_move_down(struct qw_view *view) {
         return;
     }
 
-    wl_list_for_each(child, &view->server->scene_windows_layers[view->layer]->children, link) {
-        if (!child->enabled) {
-            continue;
-        }
-
+    int layer = qw_view_get_layer(view);
+    wl_list_for_each(child, &view->server->scene_windows_layers[layer]->children, link) {
         struct wlr_surface *other_surface = qw_view_get_surface_from_tree(child);
         if (other_surface == NULL) {
             continue;
@@ -216,8 +223,10 @@ void qw_view_paint_borders(struct qw_view *view, const struct qw_border *borders
 
         if (src->type == QW_BORDER_RECT) {
             for (int j = 0; j < 4; j++) {
+                float rect_color[4];
+                qw_util_premultiply_rgba(src->rect.color[j], view->opacity, rect_color);
                 struct wlr_scene_rect *rect = wlr_scene_rect_create(
-                    view->content_tree, sides[j].width, sides[j].height, src->rect.color[j]);
+                    view->content_tree, sides[j].width, sides[j].height, rect_color);
                 if (!rect) {
                     wlr_log(WLR_ERROR, "Failed to create scene_rect for border");
                     continue;
@@ -225,6 +234,8 @@ void qw_view_paint_borders(struct qw_view *view, const struct qw_border *borders
                 wlr_scene_node_set_position(&rect->node, sides[j].x, sides[j].y);
                 view->borders[i].rects[j] = rect;
             }
+            // Store the original colour in the border so we can update if window opacity changes
+            memcpy(view->borders[i].color, src->rect.color, sizeof(view->borders[i].color));
 
         } else if (src->type == QW_BORDER_BUFFER) {
             cairo_surface_t *surface = src->buffer.surface;
@@ -307,39 +318,11 @@ static void qw_handle_ftl_request_fullscreen(struct wl_listener *listener, void 
     }
 }
 
-static void qw_handle_ftl_output_enter(struct wl_listener *listener, void *data) {
-    struct qw_view *view = wl_container_of(listener, view, ftl_output_enter);
-    struct wlr_scene_output *output = data;
-    if (view->ftl_handle != NULL) {
-        wlr_foreign_toplevel_handle_v1_output_enter(view->ftl_handle, output->output);
-    }
-}
-
-static void qw_handle_ftl_output_leave(struct wl_listener *listener, void *data) {
-    struct qw_view *view = wl_container_of(listener, view, ftl_output_leave);
-    struct wlr_scene_output *output = data;
-    if (view->ftl_handle != NULL) {
-        wlr_foreign_toplevel_handle_v1_output_leave(view->ftl_handle, output->output);
-    }
-}
-
-static bool qw_handle_ftl_point_accepts_input(struct wlr_scene_buffer *buffer, double *x,
-                                              double *y) {
-    UNUSED(buffer);
-    UNUSED(x);
-    UNUSED(y);
-    return false;
-}
-
-void qw_view_resize_ftl_output_tracking_buffer(struct qw_view *view, int width, int height) {
-    if (view->ftl_output_tracking_buffer != NULL) {
-        wlr_scene_buffer_set_dest_size(view->ftl_output_tracking_buffer, width, height);
-    }
-}
-
 void qw_view_ftl_manager_handle_create(struct qw_view *view) {
     // Create a foreign toplevel handle and set up listeners
     view->ftl_handle = wlr_foreign_toplevel_handle_v1_create(view->server->ftl_mgr);
+
+    wl_list_init(&view->ftl_outputs);
 
     view->ftl_request_activate.notify = qw_handle_ftl_request_activate;
     wl_signal_add(&view->ftl_handle->events.request_activate, &view->ftl_request_activate);
@@ -355,19 +338,6 @@ void qw_view_ftl_manager_handle_create(struct qw_view *view) {
 
     view->ftl_request_fullscreen.notify = qw_handle_ftl_request_fullscreen;
     wl_signal_add(&view->ftl_handle->events.request_fullscreen, &view->ftl_request_fullscreen);
-
-    view->ftl_output_tracking_buffer = wlr_scene_buffer_create(view->content_tree, NULL);
-    if (view->ftl_output_tracking_buffer != NULL) {
-        view->ftl_output_enter.notify = qw_handle_ftl_output_enter;
-        wl_signal_add(&view->ftl_output_tracking_buffer->events.output_enter,
-                      &view->ftl_output_enter);
-        view->ftl_output_leave.notify = qw_handle_ftl_output_leave;
-        wl_signal_add(&view->ftl_output_tracking_buffer->events.output_leave,
-                      &view->ftl_output_leave);
-        view->ftl_output_tracking_buffer->point_accepts_input = qw_handle_ftl_point_accepts_input;
-    } else {
-        wlr_log(WLR_ERROR, "Failed to create a foreign toplevel tracking buffer.");
-    }
 }
 
 void qw_view_ftl_manager_handle_destroy(struct qw_view *view) {
@@ -382,12 +352,11 @@ void qw_view_ftl_manager_handle_destroy(struct qw_view *view) {
     wl_list_remove(&view->ftl_request_minimize.link);
     wl_list_remove(&view->ftl_request_fullscreen.link);
 
-    // Remove output tracking
-    if (view->ftl_output_tracking_buffer != NULL) {
-        wl_list_remove(&view->ftl_output_enter.link);
-        wl_list_remove(&view->ftl_output_leave.link);
-        wlr_scene_node_destroy(&view->ftl_output_tracking_buffer->node);
-        view->ftl_output_tracking_buffer = NULL;
+    // Remove the outputs
+    struct qw_view_output *vo, *tmp;
+    wl_list_for_each_safe(vo, tmp, &view->ftl_outputs, link) {
+        wl_list_remove(&vo->link);
+        free(vo);
     }
 
     // Destroy the handle
@@ -426,4 +395,104 @@ struct qw_output *qw_view_get_primary_output(struct qw_view *view) {
     }
 
     return primary_output->data;
+}
+
+void qw_view_grab_click(struct qw_view *view) { view->grabbed_click = true; }
+
+void qw_view_ungrab_click(struct qw_view *view) { view->grabbed_click = false; }
+
+static void qw_set_node_opacity(struct wlr_scene_node *node, float opacity) {
+    if (node->type == WLR_SCENE_NODE_BUFFER) {
+        struct wlr_scene_buffer *buf = wlr_scene_buffer_from_node(node);
+        wlr_scene_buffer_set_opacity(buf, opacity);
+    } else if (node->type == WLR_SCENE_NODE_TREE) {
+        struct wlr_scene_tree *tree = wlr_scene_tree_from_node(node);
+        struct wlr_scene_node *child;
+        wl_list_for_each(child, &tree->children, link) { qw_set_node_opacity(child, opacity); }
+    }
+}
+
+void qw_view_set_opacity(struct qw_view *view, float opacity) {
+    if (view->content_tree) {
+        struct wlr_scene_node *node_ptr = &view->content_tree->node;
+        qw_set_node_opacity(node_ptr, opacity);
+        view->opacity = opacity;
+    }
+
+    // Update border opacity
+    for (int i = 0; i < view->border_count; i++) {
+        // Current border layer
+        typeof(*view->borders) *border = &view->borders[i];
+
+        for (int side = 0; side < 4; side++) {
+
+            if (border->type == QW_BORDER_RECT) {
+                float *color = border->color[side];
+                struct wlr_scene_rect *rect = border->rects[side];
+
+                float new_color[4];
+                qw_util_premultiply_rgba(color, view->opacity, new_color);
+                wlr_scene_rect_set_color(rect, new_color);
+            }
+        }
+    }
+}
+
+static bool qw_view_has_ftl_output(struct qw_view *view, struct wlr_output *output) {
+    struct qw_view_output *vo;
+
+    wl_list_for_each(vo, &view->ftl_outputs, link) {
+        if (vo->output == output) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void qw_view_update_ftl_outputs(struct qw_view *view, struct wlr_surface *surface) {
+    if (view->ftl_handle == NULL) {
+        return;
+    }
+
+    struct wlr_surface_output *so;
+
+    /* Enter new outputs */
+    wl_list_for_each(so, &surface->current_outputs, link) {
+        if (qw_view_has_ftl_output(view, so->output)) {
+            continue;
+        }
+
+        wlr_foreign_toplevel_handle_v1_output_enter(view->ftl_handle, so->output);
+
+        struct qw_view_output *vo = calloc(1, sizeof(*vo));
+        if (vo == NULL) {
+            continue;
+        }
+
+        vo->output = so->output;
+        wl_list_insert(&view->ftl_outputs, &vo->link);
+    }
+
+    /* Leave old outputs */
+    struct qw_view_output *vo, *tmp;
+    wl_list_for_each_safe(vo, tmp, &view->ftl_outputs, link) {
+        bool still_present = false;
+
+        wl_list_for_each(so, &surface->current_outputs, link) {
+            if (so->output == vo->output) {
+                still_present = true;
+                break;
+            }
+        }
+
+        if (still_present) {
+            continue;
+        }
+
+        wlr_foreign_toplevel_handle_v1_output_leave(view->ftl_handle, vo->output);
+
+        wl_list_remove(&vo->link);
+        free(vo);
+    }
 }

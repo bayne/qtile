@@ -61,6 +61,7 @@ dev = [
     "pytest-cov",
     "pytest-asyncio>=1.1.0",
     "pytest-httpbin",
+    "pytest-timeout",
     "pre-commit",
     "PyGObject",
     "pycairo >= 1.25.1",
@@ -86,7 +87,6 @@ widgets = [
     "pulsectl",
     "pulsectl_asyncio",
     "python-mpd2",
-    "pytz",
     "pyxdg",
     "xmltodict",
     "aiohttp",
@@ -117,7 +117,6 @@ readme = {file = "README.rst"}
 [tool.ruff]
 line-length = 98
 exclude = ["libqtile/_ffi.*.py", "libqtile/backend/x11/_ffi.*.py", "test/configs/syntaxerr.py"]
-target-version = "py310"
 
 [tool.ruff.lint]
 select = [
@@ -167,26 +166,12 @@ stubPath = "stubs"
 
 [tool.mypy]
 mypy_path = "stubs"
-python_version = "3.13"
 warn_unused_configs = true
 warn_unused_ignores = true
 warn_unreachable = true
 no_implicit_optional = true
 disallow_untyped_defs = false
 disable_error_code = ["method-assign", "annotation-unchecked"]
-
-[[tool.mypy.overrides]]
-module = [
-    "libqtile.backend.wayland.*",
-    "libqtile.backend",
-    "libqtile.bar",
-    "libqtile.core.*",
-    "libqtile.config",
-    "libqtile.layout.base",
-    "libqtile.log_utils",
-    "libqtile.utils",
-]
-disallow_untyped_defs = true
 
 [tool.vulture]
 paths = ["libqtile"]
@@ -201,6 +186,9 @@ filterwarnings = [
     "error:::test",
     "ignore:::dbus_next",
 ]
+faulthandler_timeout = 360
+faulthandler_exit_on_timeout = true
+timeout = 300 # pytest-timeout
 
 [tool.uv.sources]
 systemd-python = { git = "https://github.com/systemd/python-systemd" }
@@ -209,3 +197,4 @@ systemd-python = { git = "https://github.com/systemd/python-systemd" }
 dev = [
     "prompt-toolkit>=3.0.52",
 ]
+

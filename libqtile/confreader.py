@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import importlib
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from types import FunctionType
+from typing import Any, Literal
 
-if TYPE_CHECKING:
-    from types import FunctionType
-    from typing import Any, Literal
-
-    from libqtile.config import Group, IdleInhibitor, IdleTimer, Key, Mouse, Rule, Screen
-    from libqtile.layout.base import Layout
+from libqtile.config import Group, IdleInhibitor, IdleTimer, Key, Mouse, Output, Rule, Screen
+from libqtile.layout.base import Layout
 
 
 class ConfigError(Exception):
@@ -18,9 +16,11 @@ class ConfigError(Exception):
 
 
 config_pyi_header = """
+from collections.abc import Callable
 from typing import Any
 from typing import Literal
-from libqtile.config import Group, Key, Mouse, Rule, Screen
+from types import FunctionType
+from libqtile.config import Group, IdleInhibitor, IdleTimer, Key, Mouse, Output, Rule, Screen
 from libqtile.layout.base import Layout
 
 """
@@ -46,6 +46,7 @@ class Config:
     bring_front_click: bool | Literal["floating_only"]
     floats_kept_above: bool
     reconfigure_screens: bool
+    screen_change_debounce_timeout: int | float
     wmname: str
     auto_minimize: bool
     # Really we'd want to check this Any is libqtile.backend.wayland.ImportConfig, but
@@ -55,6 +56,8 @@ class Config:
     wl_xcursor_size: int
     idle_timers: list[IdleTimer]
     idle_inhibitors: list[IdleInhibitor]
+    fake_screens: list[Screen] | None
+    generate_screens: Callable[[list[Output]], list[Screen]] | None
 
     def __init__(self, file_path=None, **settings):
         """Create a Config() object from settings
@@ -65,18 +68,23 @@ class Config:
         self.file_path = file_path
         self.update(**settings)
 
-    def update(self, *, fake_screens=None, **settings):
+    def update(self, **settings):
         from libqtile.resources import default_config
 
-        if fake_screens:
-            self.fake_screens = fake_screens
-
         default = vars(default_config)
-        for key in self.__annotations__.keys():
+        for key in Config.__annotations__.keys():
             try:
                 value = settings[key]
             except KeyError:
-                value = getattr(self, key, default[key])
+                if key == "screens" and (
+                    settings.get("generate_screens") is not None
+                    or getattr(self, "generate_screens", None) is not None
+                    or settings.get("fake_screens") is not None
+                    or getattr(self, "fake_screens", None) is not None
+                ):
+                    value = []
+                else:
+                    value = getattr(self, key, default.get(key, None))
             setattr(self, key, value)
 
     def _reload_config_submodules(self, path: Path) -> None:

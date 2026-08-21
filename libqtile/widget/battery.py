@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 import platform
 import re
@@ -7,19 +5,14 @@ from abc import ABC, abstractmethod
 from enum import Enum, unique
 from pathlib import Path
 from subprocess import CalledProcessError, check_output
-from typing import TYPE_CHECKING, NamedTuple
+from typing import Any, NamedTuple
 
 from libqtile import bar, configurable, images
 from libqtile.command.base import expose_command
 from libqtile.images import Img
 from libqtile.log_utils import logger
-from libqtile.utils import send_notification
+from libqtile.utils import ColorsType, send_notification
 from libqtile.widget import base
-
-if TYPE_CHECKING:
-    from typing import Any
-
-    from libqtile.utils import ColorsType
 
 
 @unique
@@ -230,7 +223,13 @@ class _LinuxBattery(_Battery, configurable.Configurable):
 
     def _get_battery_name(self):
         if os.path.isdir(self.BAT_DIR):
-            bats = [f for f in os.listdir(self.BAT_DIR) if f.startswith("BAT")]
+            bats = []
+            for f in os.listdir(self.BAT_DIR):
+                if f.startswith("BAT"):
+                    bats.append(f)
+                elif os.path.isdir(self.BAT_DIR + "/" + f):
+                    if "capacity" in os.listdir(self.BAT_DIR + "/" + f):
+                        bats.append(f)
             if bats:
                 return bats[0]
         return "BAT0"
@@ -651,11 +650,7 @@ class BatteryIcon(base._Widget):
     def draw(self) -> None:
         self.drawer.clear(self.background or self.bar.background)
         image = self.images[self.current_icon]
-        self.drawer.ctx.save()
-        self.drawer.ctx.translate(self.padding, (self.bar.size - image.height) // 2)
-        self.drawer.ctx.set_source(image.pattern)
-        self.drawer.ctx.paint()
-        self.drawer.ctx.restore()
+        self.drawer.draw_image(image, self.padding, (self.bar.size - image.height) // 2)
         self.draw_at_default_position()
 
     @staticmethod

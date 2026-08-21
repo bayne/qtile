@@ -1,3 +1,4 @@
+SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 ifeq ($(QTILE_CI_PYTHON),)
@@ -27,8 +28,39 @@ deps: ## Install all of qtile's dependencies.
 
 .PHONY: check
 check: deps ## Run the test suite on the latest python
-	uv run ./libqtile/backend/wayland/cffi/build.py
-	uv run $(UV_PYTHON_ARG) $(TEST_RUNNER) $(PYTEST_BACKEND_ARG)
+	uv run ./libqtile/backend/wayland/cffi/build.py --debug
+	uv run $(UV_PYTHON_ARG) $(TEST_RUNNER) $(PYTEST_BACKEND_ARG); \
+	TEST_RESULT=$$?; \
+	if [ "$$GITHUB_ACTIONS" = "true" ]; then \
+		echo "=== Backtraces ==="; \
+		for corefile in coredumps/core*; do \
+			[ -f "$$corefile" ] && gdb -batch -ex "bt full" -c "$$corefile"; \
+		done; \
+	fi; \
+	if [ $$TEST_RESULT -ne 0 ]; then exit $$TEST_RESULT; fi
+	uv run coverage combine -q
+	uv run coverage report -m
+	uv run coverage xml
+	if [ "$$GITHUB_ACTIONS" = "true" ]; then \
+		uv tool run coveralls --service=github || true; \
+	fi
+
+TTY := $(shell [ -t 0 ] && echo "-t")
+DOCKER_RUN = docker run --rm --init -i $(TTY) \
+	-v $(PWD):/workspace:z \
+	-e USER_UID=$$(id -u) \
+	-e USER_GID=$$(id -g) \
+	-e HOME=/workspace \
+	--env-file <(env) \
+	qtile-ci
+
+.PHONY: ci-check
+ci-check: ## Run the test suite in the docker ci container
+	$(DOCKER_RUN) make check
+
+.PHONY: ci-bash
+ci-bash: ## Run the test suite in the docker ci container
+	$(DOCKER_RUN) bash
 
 .PHONY: docs
 docs: deps ## Run the sphinx build for the html docs.
@@ -46,7 +78,9 @@ lint: ## Check the source code
 
 .PHONY: clean
 clean: ## Clean generated files
-	-rm -rf dist qtile.egg-info docs/_build build/ .mypy_cache/ .pytest_cache/ .eggs/
+	-rm -rf dist qtile.egg-info docs/_build build/ .mypy_cache/ \
+	.pytest_cache/ .eggs/ libqtile/backend/wayland/cffi/.build/ \
+	libqtile/backend/wayland/qw/{build,proto}/ test/wayland_clients/bin/
 
 .PHONY: update-flake
 update-flake: ## Update the Nix flake.lock file, requires Nix installed with flake support, see: https://nixos.wiki/wiki/Flakes

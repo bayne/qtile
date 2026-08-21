@@ -2,20 +2,15 @@ from __future__ import annotations
 
 import copy
 from abc import ABCMeta, abstractmethod
-from typing import TYPE_CHECKING, overload
+from collections.abc import Iterator, Sequence
+from typing import Any, Self, overload
 
 from libqtile import configurable
 from libqtile.backend.base import Window
-from libqtile.command.base import CommandObject, expose_command
+from libqtile.command.base import CommandObject, ItemT, expose_command
 from libqtile.command.interface import CommandError
 from libqtile.config import ScreenRect
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
-    from typing import Any, Self
-
-    from libqtile.command.base import ItemT
-    from libqtile.group import _Group
+from libqtile.group import _Group
 
 
 class Layout(CommandObject, configurable.Configurable, metaclass=ABCMeta):
@@ -490,7 +485,6 @@ class _SimpleLayoutBase(Layout):
 
     def swap(self, window1: Window, window2: Window) -> None:
         self.clients.swap(window1, window2)
-        self.group.layout_all()
         self.group.focus(window1)
 
     def next(self) -> None:

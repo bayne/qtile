@@ -48,6 +48,12 @@ enum qw_view_type {
     QW_VIEW_INTERNAL,
 };
 
+struct qw_view_output {
+    // Private data
+    struct wlr_output *output;
+    struct wl_list link;
+};
+
 enum qw_border_type {
     QW_BORDER_RECT,
     QW_BORDER_BUFFER,
@@ -70,7 +76,6 @@ struct qw_border {
 
 struct qw_view {
     struct qw_server *server;
-    int layer;
     int x;
     int y;
     int width;
@@ -86,9 +91,10 @@ struct qw_view {
     char *instance; // XWayland only
     char *role;     // XWayland only
     bool skip_taskbar;
+    float opacity;
     struct wlr_scene_tree *content_tree; // Scene tree holding the view's content
     struct wlr_foreign_toplevel_handle_v1 *ftl_handle;
-
+    bool grabbed_click;
     request_focus_cb_t request_focus_cb;
     request_close_cb_t request_close_cb;
     request_maximize_cb_t request_maximize_cb;
@@ -118,6 +124,7 @@ struct qw_view {
     struct {
         enum qw_border_type type;
         uint32_t width;
+        float color[4][4];
         union {
             struct wlr_scene_rect *rects[4];
             struct wlr_scene_buffer *scene_bufs[4];
@@ -129,9 +136,7 @@ struct qw_view {
     struct wl_listener ftl_request_minimize;
     struct wl_listener ftl_request_fullscreen;
     // ftl output tracking
-    struct wlr_scene_buffer *ftl_output_tracking_buffer;
-    struct wl_listener ftl_output_enter;
-    struct wl_listener ftl_output_leave;
+    struct wl_list ftl_outputs;
 };
 
 void qw_view_reparent(struct qw_view *view, int layer);
@@ -151,8 +156,13 @@ void qw_view_paint_borders(struct qw_view *view, const struct qw_border *borders
 // Create/destroy a foreign toplevel manager handle and listeners
 void qw_view_ftl_manager_handle_create(struct qw_view *view);
 void qw_view_ftl_manager_handle_destroy(struct qw_view *view);
-void qw_view_resize_ftl_output_tracking_buffer(struct qw_view *view, int width, int height);
 
 struct qw_output *qw_view_get_primary_output(struct qw_view *view);
 
+int qw_view_get_layer(struct qw_view *view);
+void qw_view_grab_click(struct qw_view *view);
+void qw_view_ungrab_click(struct qw_view *view);
+void qw_view_set_opacity(struct qw_view *view, float opacity);
+
+void qw_view_update_ftl_outputs(struct qw_view *view, struct wlr_surface *surface);
 #endif /* VIEW_H */

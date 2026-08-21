@@ -5,19 +5,14 @@ import copy
 import inspect
 import math
 import subprocess
-from typing import TYPE_CHECKING
+from typing import Any
 
 from libqtile import bar, configurable, confreader, hook
 from libqtile.command import interface
-from libqtile.command.base import CommandObject, expose_command
+from libqtile.command.base import CommandObject, ItemT, expose_command
 from libqtile.lazy import LazyCall
 from libqtile.log_utils import logger
 from libqtile.utils import ColorType, create_task
-
-if TYPE_CHECKING:
-    from typing import Any
-
-    from libqtile.command.base import ItemT
 
 # Each widget class must define which bar orientation(s) it supports by setting
 # these bits in an 'orientations' class attribute. Simply having the attribute
@@ -154,6 +149,10 @@ class _Widget(CommandObject, configurable.Configurable):
 
     @property
     def length(self):
+        if self.finalized:
+            # The drawer and layout have been destroyed (e.g. during
+            # reload_config/restart) so a length can no longer be calculated.
+            return 0
         if self.length_type == bar.CALCULATED:
             try:
                 return int(self.calculate_length())
@@ -835,15 +834,16 @@ class BackgroundPoll(_TextBox):
     def __init__(self, text="N/A", **config):
         super().__init__(text, **config)
         self.add_defaults(BackgroundPoll.defaults)
+        self._task = None
 
     def timer_setup(self):
-        create_task(self.do_tick())
+        self._task = create_task(self.do_tick())
 
-    def poll(self):
+    def poll(self) -> str | None:
         """An optional non-async-based method for polling. Will be run as an
         async future."""
 
-    async def apoll(self):
+    async def apoll(self) -> str | None:
         """An optional async-based method for polling."""
 
     async def do_tick(self, requeue=True):
@@ -861,7 +861,7 @@ class BackgroundPoll(_TextBox):
                 logger.exception("Failed to reschedule timer for %s.", self.name)
             if requeue and self.update_interval is not None:
                 await asyncio.sleep(self.update_interval)
-                create_task(self.do_tick())
+                self._task = create_task(self.do_tick())
         else:
             logger.warning("%s's poll() returned None, not rescheduling", self.name)
 
@@ -869,6 +869,11 @@ class BackgroundPoll(_TextBox):
     def force_update(self):
         """Immediately poll the widget. Existing timers are unaffected."""
         create_task(self.do_tick(requeue=False))
+
+    def finalize(self):
+        if self._task is not None:
+            self._task.cancel()
+        super().finalize()
 
 
 class PaddingMixin(configurable.Configurable):

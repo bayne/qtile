@@ -3,16 +3,17 @@ from __future__ import annotations
 import collections
 import math
 import typing
+from copy import copy
 
 import cairocffi
 
 from libqtile import pangocffi, utils
+from libqtile.images import Img
 from libqtile.log_utils import logger
+from libqtile.utils import ColorsType
 
 if typing.TYPE_CHECKING:
     from libqtile.backend.base import Internal
-    from libqtile.core.manager import Qtile
-    from libqtile.utils import ColorsType
 
 
 class Drawer:
@@ -22,8 +23,7 @@ class Drawer:
     finally drawing all operations to a backend-specific target.
     """
 
-    def __init__(self, qtile: Qtile, win: Internal, width: int, height: int):
-        self.qtile = qtile
+    def __init__(self, win: Internal, width: int, height: int):
         self._win = win
         self._width = width
         self._height = height
@@ -331,6 +331,29 @@ class Drawer:
         self.ctx.line_to(x2, y)
         self.ctx.set_line_width(linewidth)
         self.ctx.stroke()
+
+    @property
+    def output_scale(self):
+        return getattr(self._win, "scale", 1)
+
+    def draw_image(self, img: Img, offsetx: int = 0, offsety: int = 0) -> None:
+        # Some widgets cache images, so perform the following operations on a copy
+        img = copy(img)
+
+        applied_scale = img.width / img.default_size.width
+        combined_scale = applied_scale * self.output_scale
+        img.scale(combined_scale, combined_scale)
+        pattern = img.pattern
+
+        # If the image has been scaled for HiDPI, we downscale here for
+        # compositing. Quality isn't degraded because the context uses a
+        # recording surface.
+        self.ctx.save()
+        self.ctx.translate(offsetx, offsety)
+        self.ctx.scale(1 / self.output_scale, 1 / self.output_scale)
+        self.ctx.set_source(pattern)
+        self.ctx.paint()
+        self.ctx.restore()
 
 
 class TextLayout:

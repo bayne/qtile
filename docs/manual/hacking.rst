@@ -20,7 +20,7 @@ mypy              python3-mypy        Testing ``qtile check`` (optional)
 imagemagick>=6.8  imagemagick         ``test/test_images*`` (optional)
 gtk-layer-shell   libgtk-layer-shell0 Testing notification windows in Wayland (optional)
 dbus-launch       dbus-x11            Testing dbus-using widgets (optional)
-notifiy-send      libnotify-bin       Testing ``Notify`` widget (optional)
+notify-send       libnotify-bin       Testing ``Notify`` widget (optional)
 xvfb              xvfb                Testing with X11 headless (optional)
 ================= =================== ==================================================
 
@@ -48,11 +48,21 @@ dependencies.
 Setting up the environment
 ==========================
 
-In the root of the project, run ``./dev.sh``.
-It will create a virtualenv called ``venv``.
+In the root of the project, run ``uv venv``.
+It will create a virtualenv called ``.venv``.
 
-Activate this virtualenv with ``. venv/bin/activate``.
+Activate this virtualenv with
+
+* bash, zsh: ``source .venv/bin/activate``
+* fish: ``source .venv/bin/activate.fish``
+
 Deactivate it with the ``deactivate`` command.
+
+To Install every python dependencies that Qtile needs with ``make deps``.
+
+To build wayland backend with ``make build-wayland``.
+
+Install locally into the virtualenv with ``uv pip install .``.
 
 Building the documentation
 ==========================
@@ -260,6 +270,32 @@ Then, in a terminal, run:
 Note that we used the same display, ``:1``, in both the terminal command
 and the VSCode configuration environment variables.  Then ``debug`` usually
 in VSCode. Feel free to change the screen size to fit your own screen.
+
+Profiling
+=========
+
+`py-spy <https://github.com/benfred/py-spy>`_ is a sampling profiler that
+attaches to any running Python process with no code changes and no restart
+required:
+
+.. code-block:: bash
+
+    pip install py-spy
+
+    # Record a 30-second flamegraph (interactive SVG)
+    py-spy record -o flamegraph.svg -d 30 --pid $(pidof qtile)
+
+Open ``flamegraph.svg`` in a browser to explore the call stack interactively.
+``py-spy top`` gives a live ``top``-style view of where time is being spent.
+
+For memory, use the built-in :doc:`qtile top </manual/commands/shell/qtile-top>`
+subcommand, which wraps :mod:`tracemalloc`:
+
+.. code-block:: bash
+
+    qtile top          # live curses view of top allocators
+    qtile top --raw    # one-shot snapshot
+
 
 Resources
 =========

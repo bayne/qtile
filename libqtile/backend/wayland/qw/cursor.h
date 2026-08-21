@@ -2,6 +2,7 @@
 #define CURSOR_H
 
 #include <wlr/types/wlr_cursor.h>
+#include <wlr/types/wlr_cursor_shape_v1.h>
 #include <wlr/types/wlr_pointer_constraints_v1.h>
 #include <wlr/types/wlr_xcursor_manager.h>
 
@@ -18,6 +19,8 @@ struct qw_cursor {
     struct wlr_cursor *cursor;
     struct qw_view *view;
     struct qw_implicit_grab implicit_grab;
+    struct wlr_cursor_shape_manager_v1 *cursor_shape_mgr;
+    const char *current_shape_name;
 
     // private data
     struct qw_server *server;
@@ -28,6 +31,7 @@ struct qw_cursor {
     struct wl_listener frame;
     struct wl_listener button;
     struct wl_listener constraint_commit;
+    struct wl_listener request_set_cursor_shape;
     struct wlr_xcursor_manager *mgr;
     struct wlr_xcursor_manager *xwayland_mgr;
     struct wlr_surface *saved_surface;
@@ -37,6 +41,8 @@ struct qw_cursor {
     struct wlr_pointer_constraint_v1 *active_constraint;
     bool active_confine_requires_warp;
     pixman_region32_t confine;
+    // Wid of the Internal view currently under the pointer (-1 if none).
+    int prev_internal_wid;
 };
 
 struct qw_pointer_constraint {
@@ -53,7 +59,7 @@ void qw_cursor_destroy(struct qw_cursor *cursor);
 // Create and initialize a new cursor associated with the server
 struct qw_cursor *qw_server_cursor_create(struct qw_server *cursor);
 
-void qw_cursor_warp_cursor(struct qw_cursor *cursor, double x, double y);
+void qw_cursor_warp_cursor(struct qw_cursor *cursor, double x, double y, bool motion);
 
 void qw_cursor_update_pointer_focus(struct qw_cursor *cursor);
 
@@ -70,5 +76,7 @@ void qw_cursor_configure_xcursor(struct qw_cursor *cursor);
 
 void qw_cursor_constrain_cursor(struct qw_cursor *cursor,
                                 struct wlr_pointer_constraint_v1 *constraint);
+
+void qw_cursor_fake_click(struct qw_cursor *cursor);
 
 #endif /* CURSOR_H */

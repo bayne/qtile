@@ -8,6 +8,7 @@ from test.layouts.layout_utils import assert_focused, assert_unfocused
 from test.test_manager import ManagerConfig
 
 bare_config = pytest.mark.parametrize("manager", [BareConfig], indirect=True)
+manager_config = pytest.mark.parametrize("manager", [ManagerConfig], indirect=True)
 
 
 @bare_config
@@ -163,6 +164,9 @@ def bring_front_click(request):
     indirect=True,
 )
 def test_bring_front_click(manager, bring_front_click):
+    if manager.backend.name == "wayland":
+        pytest.skip("Temporarily moved to backend/wayland/test_window.py")
+
     manager.c.group.setlayout("tile")
     # this is a tiled window.
     manager.test_window("one")
@@ -431,3 +435,196 @@ def test_follow_mouse_focus(manager, follow_mouse_focus):
     if follow_mouse_focus == "click_or_drag_only":
         assert_window = "two"
     assert manager.c.window.info()["name"] == assert_window
+
+
+@manager_config
+def test_window_stacking_order(manager):
+    """Test basic window stacking controls."""
+
+    def _clients():
+        stack = manager.backend.get_all_windows()
+        wins = [(w["name"], stack.index(w["id"])) for w in manager.c.windows()]
+        wins.sort(key=lambda x: x[1])
+        return [x[0] for x in wins]
+
+    manager.test_window("one")
+    manager.test_window("two")
+    manager.test_window("three")
+    manager.test_window("four")
+    manager.test_window("five")
+
+    # We're testing 3 "layers"
+    # BELOW, 'everything else', ABOVE
+
+    # New windows added on top of each other
+    assert _clients() == ["one", "two", "three", "four", "five"]
+
+    # Moving above/below moves above/below next client in the layer
+    window_by_name(manager.c, "one").move_up()
+    assert _clients() == ["two", "one", "three", "four", "five"]
+    window_by_name(manager.c, "four").move_up()
+    assert _clients() == ["two", "one", "three", "five", "four"]
+    window_by_name(manager.c, "one").move_down()
+    assert _clients() == ["one", "two", "three", "five", "four"]
+
+    # Keeping above/below moves client to ABOVE/BELOW layer
+    # When moving to ABOVE, client will be placed at top of that layer
+    # When moving to BELOW, client will be placed at bottom of layer
+
+    # BELOW: None, ABOVE: two
+    window_by_name(manager.c, "two").keep_above()
+    assert _clients() == ["one", "three", "five", "four", "two"]
+    window_by_name(manager.c, "five").move_up()
+    assert _clients() == ["one", "three", "four", "five", "two"]
+
+    # BELOW: three, ABOVE: two
+    window_by_name(manager.c, "three").keep_below()
+    assert _clients() == ["three", "one", "four", "five", "two"]
+    window_by_name(manager.c, "four").move_down()
+    assert _clients() == ["three", "four", "one", "five", "two"]
+
+    # BELOW: four, three, ABOVE: two
+    window_by_name(manager.c, "four").keep_below()
+    assert _clients() == ["four", "three", "one", "five", "two"]
+
+    # BELOW: four, three, ABOVE: two, one
+    window_by_name(manager.c, "one").keep_above()
+    assert _clients() == ["four", "three", "five", "two", "one"]
+    window_by_name(manager.c, "five").move_up()
+    assert _clients() == ["four", "three", "five", "two", "one"]
+    window_by_name(manager.c, "five").move_down()
+    assert _clients() == ["four", "three", "five", "two", "one"]
+
+    # BELOW: two, four, three, ABOVE: one
+    window_by_name(manager.c, "two").keep_below()
+    assert _clients() == ["two", "four", "three", "five", "one"]
+
+    # BELOW: two, three, ABOVE: one, four
+    window_by_name(manager.c, "four").keep_above()
+    assert _clients() == ["two", "three", "five", "one", "four"]
+
+    # BELOW: two, three, ABOVE: one
+    window_by_name(manager.c, "four").keep_above()
+    assert _clients() == ["two", "three", "five", "four", "one"]
+    window_by_name(manager.c, "five").move_up()
+    assert _clients() == ["two", "three", "four", "five", "one"]
+
+    # BELOW: two, three, ABOVE: None
+    window_by_name(manager.c, "one").keep_above()
+    assert _clients() == ["two", "three", "four", "five", "one"]
+
+    # BELOW: two, ABOVE: None
+    window_by_name(manager.c, "three").keep_below()
+    assert _clients() == ["two", "three", "four", "five", "one"]
+    window_by_name(manager.c, "one").move_down()
+    assert _clients() == ["two", "three", "four", "one", "five"]
+
+    # BELOW: None ABOVE: None
+    window_by_name(manager.c, "two").keep_below()
+    assert _clients() == ["two", "three", "four", "one", "five"]
+
+    # BELOW: three, ABOVE: None
+    window_by_name(manager.c, "three").keep_below()
+    assert _clients() == ["three", "two", "four", "one", "five"]
+    window_by_name(manager.c, "two").move_down()
+    assert _clients() == ["three", "two", "four", "one", "five"]
+    window_by_name(manager.c, "one").move_down()
+    assert _clients() == ["three", "two", "one", "four", "five"]
+
+    window_by_name(manager.c, "two").move_to_top()
+    assert _clients() == ["three", "one", "four", "five", "two"]
+
+    # three is kept_below so moving to bottom is still above that
+    window_by_name(manager.c, "five").move_to_bottom()
+    assert _clients() == ["three", "five", "one", "four", "two"]
+
+    # three is the only window kept_below so this will have no effect
+    window_by_name(manager.c, "three").move_to_top()
+    assert _clients() == ["three", "five", "one", "four", "two"]
+
+    # Keep three above everything else
+    window_by_name(manager.c, "three").keep_above()
+    assert _clients() == ["five", "one", "four", "two", "three"]
+
+    # This should have no effect as it's the only window kept_above
+    window_by_name(manager.c, "three").move_to_bottom()
+    assert _clients() == ["five", "one", "four", "two", "three"]
+
+
+@manager_config
+def test_floats_kept_above(manager):
+    """Test config option to pin floats to a higher level."""
+
+    def _clients():
+        stack = manager.backend.get_all_windows()
+        wins = [(w["name"], stack.index(w["id"])) for w in manager.c.windows()]
+        wins.sort(key=lambda x: x[1])
+        return [x[0] for x in wins]
+
+    manager.test_window("one", floating=True)
+    manager.test_window("two")
+
+    # Confirm floating window is above window that was opened later
+    assert _clients() == ["two", "one"]
+
+    # Open a different floating window. This should be above the first floating one.
+    manager.test_window("three", floating=True)
+    assert _clients() == ["two", "one", "three"]
+
+
+@manager_config
+def test_fullscreen_on_top(manager):
+    """Test fullscreen, focused windows are on top."""
+
+    if manager.backend.name == "wayland":
+        pytest.skip("TODO: Fix Wayland failing")
+
+    def _clients():
+        stack = manager.backend.get_all_windows()
+        wins = [(w["name"], stack.index(w["id"])) for w in manager.c.windows()]
+        wins.sort(key=lambda x: x[1])
+        return [x[0] for x in wins]
+
+    manager.test_window("one", floating=True)
+    manager.test_window("two")
+
+    # window "one" is kept_above, "two" is norm
+    assert _clients() == ["two", "one"]
+
+    # A fullscreen, focused window should display above windows that are "kept above"
+    window_by_name(manager.c, "two").enable_fullscreen()
+    window_by_name(manager.c, "two").focus()
+    assert _clients() == ["one", "two"]
+
+    # Focusing the other window should cause the fullscreen window to drop from the highest layer
+    window_by_name(manager.c, "one").focus()
+    assert _clients() == ["two", "one"]
+
+    # Disabling fullscreen will put the window below the "kept above" window, even if it has focus
+    window_by_name(manager.c, "two").focus()
+    window_by_name(manager.c, "two").toggle_fullscreen()
+    assert _clients() == ["two", "one"]
+
+
+class UnpinFloatsConfig(ManagerConfig):
+    # New floating windows not set to "keep_above"
+    floats_kept_above = False
+
+
+# Floating windows should be moved above tiled windows when first floated, regardless
+# of whether `floats_kept_above` is True
+@pytest.mark.parametrize("manager", [ManagerConfig, UnpinFloatsConfig], indirect=True)
+def test_move_float_above_tiled(manager):
+    def _clients():
+        stack = manager.backend.get_all_windows()
+        wins = [(w["name"], stack.index(w["id"])) for w in manager.c.windows()]
+        wins.sort(key=lambda x: x[1])
+        return [x[0] for x in wins]
+
+    manager.test_window("one")
+    manager.test_window("two")
+    manager.test_window("three")
+    assert _clients() == ["one", "two", "three"]
+
+    window_by_name(manager.c, "two").toggle_floating()
+    assert _clients() == ["one", "three", "two"]

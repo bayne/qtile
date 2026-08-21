@@ -6,6 +6,7 @@
 #include "output.h"
 #include "server.h"
 #include "util.h"
+#include "view.h"
 #include "wayland-util.h"
 
 void qw_cursor_destroy(struct qw_cursor *cursor) {
@@ -15,11 +16,15 @@ void qw_cursor_destroy(struct qw_cursor *cursor) {
     wl_list_remove(&cursor->motion_absolute.link);
     wl_list_remove(&cursor->frame.link);
     wl_list_remove(&cursor->button.link);
+    wl_list_remove(&cursor->request_set_cursor_shape.link);
 
     wlr_xcursor_manager_destroy(cursor->mgr);
 
     free(cursor);
 }
+
+// Forward declaration: dispatch Internal-view enter/leave/motion to compositor.
+static void qw_cursor_dispatch_internal_pointer(struct qw_cursor *cursor, double sx, double sy);
 
 // Pointer focus helper function
 static void update_pointer_focus(struct qw_cursor *cursor, struct wlr_surface *surface, double sx,
@@ -37,6 +42,35 @@ static void update_pointer_focus(struct qw_cursor *cursor, struct wlr_surface *s
         if (surface != prev_surface) {
             wlr_seat_pointer_notify_enter(seat, surface, sx, sy);
         }
+    }
+    qw_cursor_dispatch_internal_pointer(cursor, sx, sy);
+}
+
+// Notify the compositor about pointer enter/leave/motion on Internal views.
+static void qw_cursor_dispatch_internal_pointer(struct qw_cursor *cursor, double sx, double sy) {
+    if (!cursor->server->pointer_internal_event_cb) {
+        return;
+    }
+
+    int new_wid = -1;
+    if (cursor->view != NULL && cursor->view->view_type == QW_VIEW_INTERNAL) {
+        new_wid = cursor->view->wid;
+    }
+
+    int prev_wid = cursor->prev_internal_wid;
+    if (new_wid != prev_wid) {
+        if (prev_wid != -1) {
+            cursor->server->pointer_internal_event_cb(prev_wid, 0, 0, QW_POINTER_INTERNAL_LEAVE,
+                                                      cursor->server->cb_data);
+        }
+        if (new_wid != -1) {
+            cursor->server->pointer_internal_event_cb(
+                new_wid, (int)sx, (int)sy, QW_POINTER_INTERNAL_ENTER, cursor->server->cb_data);
+        }
+        cursor->prev_internal_wid = new_wid;
+    } else if (new_wid != -1) {
+        cursor->server->pointer_internal_event_cb(
+            new_wid, (int)sx, (int)sy, QW_POINTER_INTERNAL_MOTION, cursor->server->cb_data);
     }
 }
 
@@ -170,9 +204,12 @@ static void qw_cursor_handle_motion_absolute(struct wl_listener *listener, void 
     }
 }
 
-void qw_cursor_warp_cursor(struct qw_cursor *cursor, double x, double y) {
+void qw_cursor_warp_cursor(struct qw_cursor *cursor, double x, double y, bool motion) {
     wlr_cursor_warp_closest(cursor->cursor, NULL, x, y);
-    qw_cursor_process_motion(cursor, 0, NULL, 0, 0, 0, 0);
+    qw_cursor_update_pointer_focus(cursor);
+    if (motion) {
+        cursor->server->cursor_motion_cb(cursor->server->cb_data);
+    }
 }
 
 static void qw_cursor_handle_seat_request_set(struct wl_listener *listener, void *data) {
@@ -223,17 +260,22 @@ static void qw_cursor_create_implicit_grab(struct qw_cursor *cursor, uint32_t ti
 }
 
 static bool qw_cursor_process_button(struct qw_cursor *cursor, int button, bool pressed) {
+    if (cursor->server->lock_state != QW_SESSION_LOCK_UNLOCKED) {
+        return false;
+    }
+
     // Get current keyboard modifiers (shift, ctrl, etc)
     struct wlr_keyboard *kb = wlr_seat_get_keyboard(cursor->server->seat);
     uint32_t modifiers = kb ? wlr_keyboard_get_modifiers(kb) : 0;
 
-    // Call server's button callback with button info and modifiers
-    if (cursor->server->lock_state == QW_SESSION_LOCK_UNLOCKED) {
-        return cursor->server->cursor_button_cb(button, modifiers, pressed, (int)cursor->cursor->x,
-                                                (int)cursor->cursor->y,
-                                                cursor->server->cb_data) != 0;
+    // TODO: Callback should only fire for bound modifier + button combos
+    if (cursor->view != NULL && !cursor->view->grabbed_click && modifiers == 0) {
+        return false;
     }
-    return false;
+
+    // Call server's button callback with button info and modifiers
+    return cursor->server->cursor_button_cb(button, modifiers, pressed, (int)cursor->cursor->x,
+                                            (int)cursor->cursor->y, cursor->server->cb_data) != 0;
 }
 
 static void qw_cursor_handle_button(struct wl_listener *listener, void *data) {
@@ -351,6 +393,9 @@ static void qw_cursor_handle_frame(struct wl_listener *listener, void *data) {
     wlr_seat_pointer_notify_frame(cursor->server->seat);
 }
 
+// forward declaration
+static void qw_handle_request_set_cursor_shape(struct wl_listener *listener, void *data);
+
 struct qw_cursor *qw_server_cursor_create(struct qw_server *server) {
     // Allocate memory for qw_cursor
     struct qw_cursor *cursor = calloc(1, sizeof(*cursor));
@@ -360,9 +405,11 @@ struct qw_cursor *qw_server_cursor_create(struct qw_server *server) {
     }
 
     cursor->server = server;
+    cursor->prev_internal_wid = -1;
     cursor->cursor = wlr_cursor_create();
     wlr_cursor_attach_output_layout(cursor->cursor, server->output_layout);
     cursor->mgr = wlr_xcursor_manager_create(NULL, 24);
+    cursor->current_shape_name = NULL;
 
     // Setup listeners for various pointer events
     cursor->request_set.notify = qw_cursor_handle_seat_request_set;
@@ -382,6 +429,11 @@ struct qw_cursor *qw_server_cursor_create(struct qw_server *server) {
 
     cursor->button.notify = qw_cursor_handle_button;
     wl_signal_add(&cursor->cursor->events.button, &cursor->button);
+
+    cursor->cursor_shape_mgr = wlr_cursor_shape_manager_v1_create(server->display, 1);
+    cursor->request_set_cursor_shape.notify = qw_handle_request_set_cursor_shape;
+    wl_signal_add(&cursor->cursor_shape_mgr->events.request_set_shape,
+                  &cursor->request_set_cursor_shape);
 
     wl_list_init(&cursor->constraint_commit.link);
 
@@ -423,7 +475,9 @@ static void warp_to_constraint_cursor_hint(struct qw_cursor *cursor) {
         double sx = constraint->current.cursor_hint.x;
         double sy = constraint->current.cursor_hint.y;
 
-        struct qw_view *view = constraint->surface->data;
+        bool is_layer_surface, is_session_lock_surface;
+        struct qw_view *view = qw_view_from_wlr_surface(constraint->surface, &is_layer_surface,
+                                                        &is_session_lock_surface);
         if (!view) {
             return;
         }
@@ -581,19 +635,18 @@ static bool xcursor_manager_is_named(const struct wlr_xcursor_manager *manager, 
 
 void qw_cursor_configure_xcursor(struct qw_cursor *cursor) {
     unsigned cursor_size = 24;
-    const char *cursor_theme = NULL; // Defaults prob not necessary here?
+    const char *cursor_theme = NULL;
 
     struct qw_server *server = cursor->server;
     struct qw_qtile_config *config = server->get_qtile_config_cb(server->cb_data);
     cursor_size = config->wl_xcursor_size;
     cursor_theme = config->wl_xcursor_theme;
 
-    char cursor_size_fmt[16];
-    snprintf(cursor_size_fmt, sizeof(cursor_size_fmt), "%u", cursor_size);
-    setenv("XCURSOR_SIZE", cursor_size_fmt, 1);
-    if (cursor_theme != NULL) {
-        setenv("XCURSOR_THEME", cursor_theme, 1);
-    }
+    // Note: XCURSOR_SIZE and XCURSOR_THEME environment variables are now set
+    // from Python (Core.on_config_load) to avoid calling setenv() from C code.
+    // setenv() is not thread-safe with respect to concurrent getenv() calls
+    // (e.g. from fontconfig/pango initialization), which caused intermittent
+    // segfaults. See https://github.com/qtile/qtile/issues/5818
 
 #if WLR_HAS_XWAYLAND
     if (server->xwayland != NULL &&
@@ -604,7 +657,7 @@ void qw_cursor_configure_xcursor(struct qw_cursor *cursor) {
         wlr_xcursor_manager_destroy(cursor->xwayland_mgr);
 
         cursor->xwayland_mgr = wlr_xcursor_manager_create(cursor_theme, cursor_size);
-        if (cursor->mgr == NULL) {
+        if (cursor->xwayland_mgr == NULL) {
             wlr_log(WLR_ERROR, "Cannot create XCursor manager for theme '%s'", cursor_theme);
         }
         wlr_xcursor_manager_load(cursor->xwayland_mgr, 1);
@@ -612,8 +665,8 @@ void qw_cursor_configure_xcursor(struct qw_cursor *cursor) {
             wlr_xcursor_manager_get_xcursor(cursor->xwayland_mgr, "default", 1);
         if (xcursor != NULL) {
             struct wlr_xcursor_image *image = xcursor->images[0];
-            wlr_xwayland_set_cursor(server->xwayland, image->buffer, image->width * 4, image->width,
-                                    image->height, image->hotspot_x, image->hotspot_y);
+            struct wlr_buffer *buffer = wlr_xcursor_image_get_buffer(image);
+            wlr_xwayland_set_cursor(server->xwayland, buffer, image->hotspot_x, image->hotspot_y);
         }
     }
 #endif
@@ -643,4 +696,34 @@ void qw_cursor_configure_xcursor(struct qw_cursor *cursor) {
         wlr_cursor_set_xcursor(cursor->cursor, cursor->mgr, "default");
         wlr_cursor_warp(cursor->cursor, NULL, cursor->cursor->x, cursor->cursor->y);
     }
+}
+
+void qw_cursor_fake_click(struct qw_cursor *cursor) {
+    struct wlr_pointer_button_event event = {
+        .button = 0x110, // BTN_LEFT (0x110 from linux/input-event-codes.h)
+        .state = WL_POINTER_BUTTON_STATE_PRESSED,
+        .time_msec = 0,
+    };
+
+    // Simulate press
+    qw_cursor_handle_button(&cursor->button, &event);
+
+    // Simulate release
+    event.state = WL_POINTER_BUTTON_STATE_RELEASED;
+    qw_cursor_handle_button(&cursor->button, &event);
+}
+
+static void qw_handle_request_set_cursor_shape(struct wl_listener *listener, void *data) {
+    struct qw_cursor *cursor = wl_container_of(listener, cursor, request_set_cursor_shape);
+    struct wlr_cursor_shape_manager_v1_request_set_shape_event *event = data;
+
+    struct wlr_seat_client *focused_client = cursor->server->seat->pointer_state.focused_client;
+    if (focused_client != event->seat_client) {
+        return;
+    }
+
+    const char *name = wlr_cursor_shape_v1_name(event->shape);
+    cursor->current_shape_name = name;
+
+    wlr_cursor_set_xcursor(cursor->cursor, cursor->mgr, name);
 }

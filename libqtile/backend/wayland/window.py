@@ -7,7 +7,7 @@ from libqtile import hook, utils
 from libqtile.backend.base import FloatStates
 from libqtile.backend.base.window import WindowType
 from libqtile.backend.wayland.drawer import Drawer
-from libqtile.command.base import CommandError, expose_command
+from libqtile.command.base import CommandError, CommandObject, ItemT, expose_command
 from libqtile.core.manager import Qtile
 from libqtile.group import _Group
 from libqtile.log_utils import logger
@@ -23,7 +23,7 @@ except ModuleNotFoundError:
     from libqtile.backend.wayland.ffi_stub import ffi, lib
 
 if typing.TYPE_CHECKING:
-    from libqtile.command.base import CommandObject, ItemT
+    from libqtile.backend.wayland.core import Core
 
 
 class Base(base._Window):
@@ -42,19 +42,43 @@ class Base(base._Window):
         # TODO: what is this?
         self.defunct = False
         self.group: _Group | None = None
+        self.core: Core = typing.cast("Core", qtile.core)
+        # Just in case
+        self._opacity = 1.0
+        if self._ptr != ffi.NULL:
+            self._ptr.opacity = 1.0
+
+    def _grab_click(self) -> None:
+        lib.qw_view_grab_click(self._ptr)
+
+    def _ungrab_click(self) -> None:
+        lib.qw_view_ungrab_click(self._ptr)
 
     def reparent(self, layer: int) -> None:
-        if self.layer == layer:
+        if self.layer() == layer:
             return
         lib.qw_view_reparent(self._ptr, layer)
 
     @property
+    def opacity(self) -> float:
+        """The opacity of this window."""
+        return self._opacity
+
+    @opacity.setter
+    def opacity(self, opacity: float) -> None:
+        # Clamp the given opacity
+        opacity = max(0.0, min(1.0, opacity))
+        self._opacity = opacity
+        if self._ptr:
+            lib.qw_view_set_opacity(self._ptr, opacity)
+
+    @expose_command()
     def layer(self) -> int:
-        return self._ptr.layer
+        return lib.qw_view_get_layer(self._ptr)
 
     @expose_command()
     def keep_above(self, enable: bool | None = None) -> None:
-        is_enabled = self.layer == lib.LAYER_KEEPABOVE
+        is_enabled = self.layer() == lib.LAYER_KEEPABOVE
         if enable is None:
             enable = not is_enabled
 
@@ -65,14 +89,15 @@ class Base(base._Window):
 
     @expose_command()
     def keep_below(self, enable: bool | None = None) -> None:
-        is_enabled = self.layer == lib.LAYER_KEEPBELOW
+        is_enabled = self.layer() == lib.LAYER_KEEPBELOW
         if enable is None:
             enable = not is_enabled
-
         if enable:
             self.reparent(lib.LAYER_KEEPBELOW)
+            self.move_to_bottom()
         else:
             self.reparent(lib.LAYER_LAYOUT)
+            self.move_to_bottom()
 
     @expose_command()
     def move_to_top(self) -> None:
@@ -80,16 +105,10 @@ class Base(base._Window):
 
     @expose_command()
     def move_up(self, force: bool = False) -> None:
-        if force and self.layer == lib.LAYER_KEEPBELOW:
-            new_layer = self.get_new_layer(self._float_state)
-            self.reparent(new_layer)
         lib.qw_view_move_up(self._ptr)
 
     @expose_command()
     def move_down(self, force: bool = False) -> None:
-        if force and self.layer == lib.LAYER_KEEPAOVE:
-            new_layer = self.get_new_layer(self._float_state)
-            self.reparent(new_layer)
         lib.qw_view_move_down(self._ptr)
 
     @expose_command()
@@ -145,44 +164,16 @@ class Base(base._Window):
     def urgent(self, urgent: bool) -> None:
         self._ptr.urgent = urgent
 
-    @expose_command()
-    def info(self) -> dict:
-        """Return a dictionary of info."""
-        # TODO: complete implementation
-        float_info = {
-            "x": self.float_x,
-            "y": self.float_y,
-            "width": self._float_width,
-            "height": self._float_height,
-        }
-        return dict(
-            name=self.name,
-            x=self.x,
-            y=self.y,
-            width=self.width,
-            height=self.height,
-            group=self.group.name if self.group else None,
-            id=self.wid,
-            wm_class=self.get_wm_class(),
-            # shell can be either "XDG" or "XWayland" or "layer"?
-            shell=ffi.string(self._ptr.shell).decode() if self._ptr.shell != ffi.NULL else "",
-            float_info=float_info,
-            floating=self._float_state != FloatStates.NOT_FLOATING,
-            maximized=self._float_state == FloatStates.MAXIMIZED,
-            minimized=self._float_state == FloatStates.MINIMIZED,
-            fullscreen=self._float_state == FloatStates.FULLSCREEN,
-        )
-
     def kill(self) -> None:
         self._ptr.kill(self._ptr)
 
     def hide(self) -> None:
         self._ptr.hide(self._ptr)
-        self.qtile.core.check_inhibited()
+        self.core.check_inhibited()
 
     def unhide(self) -> None:
         self._ptr.unhide(self._ptr)
-        self.qtile.core.check_inhibited()
+        self.core.check_inhibited()
 
     @expose_command()
     def place(
@@ -267,7 +258,15 @@ class Base(base._Window):
 
     @expose_command()
     def focus(self, warp: bool = True) -> None:
-        self.qtile.core.focus_window(self)
+        # re-grab button events on the previously focused window,
+        # but only un-grab them on focus by click
+        old = lib.qw_server_active_view(self.core.qw)
+        if old != ffi.NULL and old.wid != ffi.NULL and old.wid in self.qtile.windows_map:
+            old_win = self.qtile.windows_map[old.wid]
+            if isinstance(old_win, Window):
+                old_win._grab_click()
+
+        self.core.focus_window(self)
 
         if warp and self.qtile.config.cursor_warp:
             self.qtile.core.warp_pointer(
@@ -291,9 +290,16 @@ class Internal(Base, base.Internal):
         ptr.base.wid = wid
         self._internal_ptr = ptr
         self._killed = False
+        self._grab_click()
 
     @property
     def surface(self) -> ffi.CData:
+        # qw_internal_view_kill() frees the C view struct, so once killed
+        # self._internal_ptr dangles and reading image_surface yields stale
+        # non-NULL garbage that crashes cairo_surface_reference in the drawer.
+        # Report no surface so callers' existing NULL guard skips drawing.
+        if self._killed:
+            return ffi.NULL
         return ffi.cast("void *", self._internal_ptr.image_surface)
 
     @property
@@ -305,7 +311,7 @@ class Internal(Base, base.Internal):
 
     def create_drawer(self, width: int, height: int) -> Drawer:
         """Create a Drawer that draws to this window."""
-        return Drawer(self.qtile, self, width, height)
+        return Drawer(self, width, height)
 
     def set_buffer_with_damage(self, offsetx: int, offsety: int, width: int, height: int) -> None:
         lib.qw_internal_view_set_buffer_with_damage(
@@ -406,6 +412,7 @@ class Window(Base, base.Window):
         ptr.request_fullscreen_cb = lib.request_fullscreen_cb
         ptr.set_title_cb = lib.set_title_cb
         ptr.set_app_id_cb = lib.set_app_id_cb
+        self._grab_click()
 
     def handle_request_focus(self) -> bool:
         logger.debug("Focusing window from external request")
@@ -633,6 +640,49 @@ class Window(Base, base.Window):
             return lib.LAYER_FULLSCREEN
         return lib.LAYER_LAYOUT
 
+    @expose_command()
+    def move_up(self, force: bool = False) -> None:
+        if force and self.layer() == lib.LAYER_KEEPBELOW:
+            new_layer = self.get_new_layer(self._float_state)
+            self.reparent(new_layer)
+        lib.qw_view_move_up(self._ptr)
+
+    @expose_command()
+    def move_down(self, force: bool = False) -> None:
+        if force and self.layer() == lib.LAYER_KEEPABOVE:
+            new_layer = self.get_new_layer(self._float_state)
+            self.reparent(new_layer)
+        lib.qw_view_move_down(self._ptr)
+
+    @expose_command()
+    def info(self) -> dict:
+        """Return a dictionary of info."""
+        # TODO: complete implementation
+        float_info = {
+            "x": self.float_x,
+            "y": self.float_y,
+            "width": self._float_width,
+            "height": self._float_height,
+        }
+        return dict(
+            name=self.name,
+            x=self.x,
+            y=self.y,
+            width=self.width,
+            height=self.height,
+            group=self.group.name if self.group else None,
+            id=self.wid,
+            wm_class=self.get_wm_class(),
+            # shell can be either "XDG" or "XWayland" or "layer"?
+            shell=ffi.string(self._ptr.shell).decode() if self._ptr.shell != ffi.NULL else "",
+            float_info=float_info,
+            floating=self._float_state != FloatStates.NOT_FLOATING,
+            maximized=self._float_state == FloatStates.MAXIMIZED,
+            minimized=self._float_state == FloatStates.MINIMIZED,
+            fullscreen=self._float_state == FloatStates.FULLSCREEN,
+            opacity=self.opacity,
+        )
+
     @property
     def floating(self) -> bool:
         return self._float_state != FloatStates.NOT_FLOATING
@@ -651,55 +701,34 @@ class Window(Base, base.Window):
                     self._float_width,
                     self._float_height,
                 )
+
+                # Make sure floating window is placed above other LAYOUT windows
+                self.move_to_top()
             else:
                 # if we are setting floating early, e.g. from a hook, we don't have a screen yet
                 self._float_state = FloatStates.FLOATING
-            if self.layer != lib.LAYER_KEEPABOVE and self.qtile.config.floats_kept_above:
+            if self.layer() != lib.LAYER_KEEPABOVE and self.qtile.config.floats_kept_above:
                 self.keep_above(enable=True)
         elif (not do_float) and self._float_state != FloatStates.NOT_FLOATING:
             self.reparent(lib.LAYER_LAYOUT)
-            self._update_fullscreen(False)
-            self._update_maximized(False)
-            self._update_minimized(False)
             if self._float_state == FloatStates.FLOATING:
                 # store last size
                 self._float_width = self.width
                 self._float_height = self.height
+            old_state = self._float_state
             self._float_state = FloatStates.NOT_FLOATING
+            self._update_fullscreen(False, old_state)
+            self._update_maximized(False, old_state)
+            self._update_minimized(False, old_state)
             if self.group:
                 self.group.mark_floating(self, False)
             hook.fire("float_change")
 
-    @property
-    def fullscreen(self) -> bool:
-        return self._float_state == FloatStates.FULLSCREEN
+    def _update_fullscreen(self, do_full: bool, old_state: FloatStates) -> None:
+        if not (do_full or old_state == FloatStates.FULLSCREEN):
+            return
 
-    @fullscreen.setter
-    def fullscreen(self, do_full: bool) -> None:
-        if do_full and self._float_state != FloatStates.FULLSCREEN:
-            screen = (self.group and self.group.screen) or self.qtile.find_closest_screen(
-                self.x, self.y
-            )
-
-            if self._float_state not in (FloatStates.MAXIMIZED, FloatStates.FULLSCREEN):
-                self._save_geometry()
-
-            bw = self.group.floating_layout.fullscreen_border_width if self.group else 0
-            self._reconfigure_floating(
-                screen.x,
-                screen.y,
-                screen.width - 2 * bw,
-                screen.height - 2 * bw,
-                new_float_state=FloatStates.FULLSCREEN,
-            )
-        elif self._float_state == FloatStates.FULLSCREEN:
-            self._restore_geometry()
-            self.floating = False
-            self._update_fullscreen(False)
-
-    def _update_fullscreen(self, do_full: bool) -> None:
-        if do_full != (self._float_state == FloatStates.FULLSCREEN):
-            self._ptr.update_fullscreen(self._ptr, do_full)
+        self._ptr.update_fullscreen(self._ptr, do_full)
 
         if self.group and self.group.screen:
             screen = self.group.screen
@@ -707,37 +736,10 @@ class Window(Base, base.Window):
             screen = None
 
         self.qtile.core.check_screen_fullscreen_background(screen)
-        self.qtile.core.check_inhibited()
+        self.core.check_inhibited()
 
-    @property
-    def maximized(self) -> bool:
-        return self._float_state == FloatStates.MAXIMIZED
-
-    @maximized.setter
-    def maximized(self, do_maximize: bool) -> None:
-        if do_maximize:
-            screen = (self.group and self.group.screen) or self.qtile.find_closest_screen(
-                self.x, self.y
-            )
-
-            if self._float_state not in (FloatStates.MAXIMIZED, FloatStates.FULLSCREEN):
-                self._save_geometry()
-
-            bw = self.group.floating_layout.max_border_width if self.group else 0
-            self._reconfigure_floating(
-                screen.dx,
-                screen.dy,
-                screen.dwidth - 2 * bw,
-                screen.dheight - 2 * bw,
-                new_float_state=FloatStates.MAXIMIZED,
-            )
-        else:
-            if self._float_state == FloatStates.MAXIMIZED:
-                self._restore_geometry()
-                self.floating = False
-
-    def _update_maximized(self, do_max: bool) -> None:
-        if do_max != (self._float_state == FloatStates.MAXIMIZED):
+    def _update_maximized(self, do_max: bool, old_state: FloatStates) -> None:
+        if do_max or old_state == FloatStates.MAXIMIZED:
             self._ptr.update_maximized(self._ptr, do_max)
 
     @property
@@ -753,8 +755,8 @@ class Window(Base, base.Window):
             if self._float_state == FloatStates.MINIMIZED:
                 self.floating = False
 
-    def _update_minimized(self, do_min: bool) -> None:
-        if do_min != (self._float_state == FloatStates.MINIMIZED):
+    def _update_minimized(self, do_min: bool, old_state: FloatStates) -> None:
+        if do_min or old_state == FloatStates.MINIMIZED:
             self._ptr.update_minimized(self._ptr, do_min)
 
     def _reconfigure_floating(
@@ -766,20 +768,21 @@ class Window(Base, base.Window):
         new_float_state: FloatStates = FloatStates.FLOATING,
     ) -> None:
         if self._float_state != new_float_state:
+            old_state = self._float_state
             self._float_state = new_float_state
             self.reparent(self.get_new_layer(new_float_state))
             if self.group:  # may be not, if it's called from hook
                 self.group.mark_floating(self, True)
-            self._update_fullscreen(new_float_state == FloatStates.FULLSCREEN)
+            self._update_fullscreen(new_float_state == FloatStates.FULLSCREEN, old_state)
+            self._update_maximized(new_float_state == FloatStates.MAXIMIZED, old_state)
+            self._update_minimized(new_float_state == FloatStates.MINIMIZED, old_state)
+
             hook.fire("float_change")
-        self._update_fullscreen(new_float_state == FloatStates.FULLSCREEN)
-        self._update_maximized(new_float_state == FloatStates.MAXIMIZED)
-        self._update_minimized(new_float_state == FloatStates.MINIMIZED)
         if new_float_state == FloatStates.MINIMIZED:
             self.hide()
         else:
             self.place(
-                x, y, w, h, self.borderwidth, self.bordercolor, above=True, respect_hints=True
+                x, y, w, h, self.borderwidth, self.bordercolor, above=False, respect_hints=True
             )
 
     def _tweak_float(
@@ -817,8 +820,8 @@ class Window(Base, base.Window):
         screen = self.qtile.find_closest_screen(x + w // 2, y + h // 2)
         if self.group and screen is not None and screen != self.group.screen:
             self.group.remove(self, force=True)
-            screen.group.add(self, force=True)
             self.qtile.focus_screen(screen.index)
+            screen.group.add(self, force=True)
 
         self._reconfigure_floating(x, y, w, h)
 
@@ -841,8 +844,8 @@ class Window(Base, base.Window):
             return
 
         if self.group:
-            cx = self.qtile.core.qw_cursor.cursor.x
-            cy = self.qtile.core.qw_cursor.cursor.y
+            cx = self.core.qw_cursor.cursor.x
+            cy = self.core.qw_cursor.cursor.y
             for window in self.group.windows:
                 if (
                     window is not self
@@ -957,6 +960,6 @@ class Static(Base, base.Static):
         """Return a dictionary of info."""
         info = base.Static.info(self)
         info["shell"] = (
-            ffi.string(self._ptr.shell).decode() if self._ptr.shell != ffi.NULL else "",
+            ffi.string(self._ptr.shell).decode() if self._ptr.shell != ffi.NULL else ""
         )
         return info

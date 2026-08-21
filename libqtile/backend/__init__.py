@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
-from typing import TYPE_CHECKING
+import os
+from typing import TYPE_CHECKING, Any
 
 from libqtile.utils import QtileError
 
 if TYPE_CHECKING:
-    from typing import Any
-
     from libqtile.backend.base import Core
 
 
@@ -16,6 +15,15 @@ CORES = {
     "wayland": (),
     "x11": ("xcffib",),
 }
+
+
+def detect_backend() -> str:
+    session_type = os.environ.get("XDG_SESSION_TYPE")
+    if session_type in CORES:
+        return session_type
+    if "DISPLAY" in os.environ:
+        return "x11"
+    return "wayland"
 
 
 def has_deps(backend: str) -> list[str]:

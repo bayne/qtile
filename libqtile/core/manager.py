@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import faulthandler
 import io
 import logging
@@ -11,24 +10,42 @@ import shlex
 import shutil
 import signal
 import socket
-import subprocess
 import tempfile
 import time
 from collections import defaultdict
+from collections.abc import Callable, Sequence
 from logging.handlers import RotatingFileHandler
+from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, Literal
 
 import libqtile
 from libqtile import bar, hook, ipc, utils
 from libqtile.backend import base
-from libqtile.backend.base.core import Output
 from libqtile.command import interface
-from libqtile.command.base import CommandError, CommandException, CommandObject, expose_command
+from libqtile.command.base import (
+    CommandError,
+    CommandException,
+    CommandObject,
+    ItemT,
+    expose_command,
+)
 from libqtile.command.client import InteractiveCommandClient
 from libqtile.command.interface import IPCCommandServer, QtileCommandInterface
-from libqtile.config import Click, Drag, Key, KeyChord, Match, Mouse, Rule, Screen, ScreenRect
+from libqtile.config import (
+    Click,
+    Drag,
+    Key,
+    KeyChord,
+    Match,
+    Mouse,
+    Output,
+    Rule,
+    Screen,
+    ScreenRect,
+)
 from libqtile.config import ScratchPad as ScratchPadConfig
+from libqtile.confreader import Config
 from libqtile.core.lifecycle import lifecycle
 from libqtile.core.loop import LoopContext
 from libqtile.core.state import QtileState
@@ -36,11 +53,13 @@ from libqtile.dgroups import DGroups
 from libqtile.extension.base import _Extension
 from libqtile.group import _Group
 from libqtile.interactive.repl import repl_server
+from libqtile.layout.base import Layout
 from libqtile.log_utils import logger
 from libqtile.resources.sleep import inhibitor
 from libqtile.scratchpad import ScratchPad
 from libqtile.scripts.main import VERSION
 from libqtile.utils import (
+    ColorType,
     create_task,
     get_cache_dir,
     lget,
@@ -48,15 +67,6 @@ from libqtile.utils import (
     send_notification,
 )
 from libqtile.widget.base import _Widget
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-    from typing import Any, Literal
-
-    from libqtile.command.base import ItemT
-    from libqtile.confreader import Config
-    from libqtile.layout.base import Layout
-    from libqtile.utils import ColorType
 
 
 class Qtile(CommandObject):
@@ -105,6 +115,8 @@ class Qtile(CommandObject):
         self.locked = False
         hook.subscribe.locked(self.lock)
         hook.subscribe.unlocked(self.unlock)
+        self.test_data = None
+        self.test_data_config_evaluations = None
 
     def lock(self) -> None:
         self.locked = True
@@ -119,9 +131,6 @@ class Qtile(CommandObject):
         except Exception as e:
             logger.exception("Configuration error:")
             send_notification("Configuration error", str(e))
-
-        if hasattr(self.core, "wmname"):
-            self.core.wmname = getattr(self.config, "wmname", "qtile")  # type: ignore
 
         self.dgroups = DGroups(self, self.config.groups, self.config.dgroups_key_binder)
 
@@ -390,102 +399,66 @@ class Qtile(CommandObject):
                 return group
         return None
 
-    def _process_screens(self, reloading: bool = False) -> None:
-        current_groups = [s.group for s in self.screens]
-        screens = []
-
-        if hasattr(self.config, "fake_screens"):
-            output_info = [
-                Output(None, None, ScreenRect(s.x, s.y, s.width, s.height))
+    def get_output_info(self) -> list[Output]:
+        if self.config.fake_screens is not None:
+            return [
+                Output(None, None, None, None, ScreenRect(s.x, s.y, s.width, s.height))
                 for s in self.config.fake_screens
             ]
-            config = self.config.fake_screens
-        else:
-            # Alias screens with the same x and y coordinates, taking largest
-            xywh: dict[tuple[int, int], tuple[int, int, str | None, str | None]] = {}
-            for info in self.core.get_output_info():
-                pos = (info.rect.x, info.rect.y)
-                width, height, serial, name = xywh.get(pos, (0, 0, info.serial, info.name))
-                # if one monitor is wider and one monitor is longer, either
-                # serial number was valid (i.e. we could choose either, since
-                # we're going to project over the whole space). just pick one.
-                xywh[pos] = (
-                    max(width, info.rect.width),
-                    max(height, info.rect.height),
-                    info.serial,
-                    info.name,
+
+        # Alias screens with the same x and y coordinates, taking largest
+        xywh: dict[
+            tuple[int, int], tuple[int, int, str | None, str | None, str | None, str | None]
+        ] = {}
+        for info in self.core.get_output_info():
+            pos = (info.rect.x, info.rect.y)
+            width, height, port, make, model, serial = xywh.get(
+                pos, (0, 0, info.port, info.make, info.model, info.serial)
+            )
+            # if one monitor is wider and one monitor is longer, either
+            # serial number was valid (i.e. we could choose either, since
+            # we're going to project over the whole space). just pick one.
+            xywh[pos] = (
+                max(width, info.rect.width),
+                max(height, info.rect.height),
+                info.port,
+                info.make,
+                info.model,
+                info.serial,
+            )
+
+        return [
+            Output(port, make, model, serial, ScreenRect(x, y, w, h))
+            for (x, y), (w, h, port, make, model, serial) in xywh.items()
+        ]
+
+    def get_screens_from_config(self, output_info: list[Output]) -> list[Screen]:
+        if self.config.fake_screens is not None:
+            return self.config.fake_screens
+
+        if self.config.generate_screens is not None:
+            if self.config.screens:
+                logger.warning(
+                    "Both screens and generate_screens are defined in config. Using generate_screens."
                 )
+            return self.config.generate_screens(output_info)
 
-            output_info = [
-                Output(name, serial, ScreenRect(x, y, w, h))
-                for (x, y), (w, h, serial, name) in xywh.items()
-            ]
-            config = self.config.screens
+        return self.config.screens
 
-        # wayland parses edid natively, we need an extra library that may or
-        # may not be installed to do it in x11
-        have_serials_from_hardware = self.core.name == "wayland" or any(
-            i.serial is not None for i in output_info
-        )
+    def _process_screens(self, reloading: bool = False) -> None:
+        current_groups = [s.group for s in self.screens]
+        output_info = self.get_output_info()
+        config_screens = self.get_screens_from_config(output_info)
+        new_screens: list[Screen] = []
 
         for i, info in enumerate(output_info):
-            scr = Screen(serial=info.serial, name=info.name)
-            fresh_screen = True
-
-            # first, try to find a screen that matches this one by serial
-            # number
-            for screen in config:
-                if screen.serial is not None:
-                    if not have_serials_from_hardware:
-                        # if no hardware provided a serial and people provided
-                        # hardware, maybe the hardware didn't have one (e.g.
-                        # common in thinkpads)?
-                        logger.warning(
-                            "serial (%s) specified in config, none found from hardware.",
-                            screen.serial,
-                        )
-                    if screen.serial == info.serial:
-                        scr = screen
-                        fresh_screen = False
-                        logger.debug(
-                            f"using config serial {screen.serial} for output {info.name}"
-                        )
-                        break
-
-                if screen.name is not None:
-                    if screen.name == info.name:
-                        scr = screen
-                        fresh_screen = False
-                        logger.debug(f"using config name {screen.name} for output {info.name}")
-                        break
-
-            # if we didn't find one by serial number, take the ith screen
-            # assuming it exists, ignoring its serial number
-            if fresh_screen and i < len(config):
-                if config[i].serial is not None and config[i].serial != info.serial:
-                    logger.warning(
-                        "using config serial %s for output %s with physical serial %s",
-                        config[i].serial,
-                        info.name,
-                        info.serial,
-                    )
-                    # we need a copy here in case the ith window was a
-                    # previously used serial number
-                    scr = copy.copy(config[i])
-                elif config[i].name is not None and config[i].name != info.name:
-                    logger.warning(
-                        "using config name %s for output %s with physical name %s",
-                        config[i].name,
-                        info.name,
-                        info.name,
-                    )
-                    scr = copy.copy(config[i])
-                else:
-                    scr = config[i]
-                    logger.debug(f"using config at index {i} for output {info.name}")
-
-                scr.serial = info.serial
-                scr.name = info.name
+            if i < len(config_screens):
+                scr = config_screens[i]
+                logger.debug(f"using config at index {i} for output {info.port}")
+            else:
+                # user didn't supply enough screens, create one
+                scr = Screen()
+            scr.output = info
 
             if not hasattr(self, "current_screen") or reloading:
                 self.current_screen = scr
@@ -527,13 +500,17 @@ class Qtile(CommandObject):
                 grp,
                 reconfigure_gaps=reconfigure_gaps,
             )
-            screens.append(scr)
+            new_screens.append(scr)
+
+        # There needs to be at least one screen.
+        if len(new_screens) == 0:
+            new_screens.append(Screen())
 
         for screen in self.screens:
-            if screen not in screens:
+            if screen not in new_screens:
                 screen.finalize_gaps()
 
-        self.screens = screens
+        self.screens = new_screens
 
     @expose_command()
     def reconfigure_screens(self, *_: list[Any], **__: dict[Any, Any]) -> None:
@@ -1383,7 +1360,7 @@ class Qtile(CommandObject):
     @expose_command()
     def spawn(
         self,
-        cmd: list[str] | str,
+        cmd: list[str] | str | Sequence[str | PathLike],
         shell: bool = False,
         env: dict[str, str] = dict(),
         group: str | None = None,
@@ -1412,11 +1389,17 @@ class Qtile(CommandObject):
 
             spawn("screenshot | xclip", shell=True)
         """
-        if isinstance(cmd, str):
-            args = shlex.split(cmd)
+
+        def expand(arg: str | PathLike) -> str:
+            if isinstance(arg, Path):
+                arg = arg.expanduser()
+            return os.fspath(arg)
+
+        if isinstance(cmd, str | os.PathLike):
+            args = shlex.split(expand(cmd))
         else:
-            args = list(cmd)
-            cmd = subprocess.list2cmdline(args)
+            args = [expand(c) for c in cmd]
+            cmd = shlex.join(args)
 
         to_lookup = args[0]
         if shell:
@@ -1985,3 +1968,10 @@ class Qtile(CommandObject):
     def stop_repl_server(self) -> None:
         """Stop the REPL server."""
         create_task(repl_server.stop())
+
+    def widget_has_keyboard(self) -> bool:
+        for screen in self.screens:
+            for gap in screen.gaps:
+                if gap.has_keyboard():
+                    return True
+        return False
